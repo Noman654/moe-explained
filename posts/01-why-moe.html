@@ -1,0 +1,1101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Every token pays full price — MoE, Explained ch.1</title>
+<meta name="description" content="Why Mixture-of-Experts exists, and how a 47-billion-parameter model does 13 billion parameters of work.">
+<link rel="stylesheet" href="../assets/moe.css">
+</head>
+<body>
+
+<div class="progressrail" aria-hidden="true"><span id="prog"></span></div>
+
+<header class="masthead">
+  <div class="wrap">
+    <a class="brand" href="../index.html">MoE<em>,</em> Explained</a>
+    <nav>
+      <a href="../index.html">Contents</a>
+      <a href="02-the-router.html">Next: The router &rarr;</a>
+    </nav>
+  </div>
+</header>
+
+<div class="book">
+
+  <!-- ============================ sidebar ============================ -->
+  <nav class="booknav" aria-label="Table of contents">
+    <details open>
+      <summary>Contents</summary>
+      <p class="navtitle">Chapters</p>
+      <ol>
+        <li><a href="01-why-moe.html" aria-current="page">Every token pays full price</a>
+          <ul class="inchap">
+            <li><a href="#live">See it happen</a></li>
+            <li><a href="#params">Where the parameters live</a></li>
+            <li><a href="#wall">The dense wall</a></li>
+            <li><a href="#layer">What an MoE layer is</a></li>
+            <li><a href="#pertoken">Routing is per-token</a></li>
+            <li><a href="#derive">Derive the spec sheet</a></li>
+            <li><a href="#scoreboard">The scoreboard</a></li>
+            <li><a href="#bill">The bill</a></li>
+          </ul>
+        </li>
+        <li><a class="soon" href="02-the-router.html">The router</a></li>
+        <li><a class="soon" href="03-load-balancing.html">Load balancing &amp; collapse</a></li>
+        <li><a class="soon" href="04-capacity-factor.html">Capacity &amp; dropped tokens</a></li>
+        <li><a class="soon" href="05-the-lineage.html">The lineage</a></li>
+        <li><a class="soon" href="06-systems-reality.html">The systems reality</a></li>
+      </ol>
+      <p class="navfoot">Every formula copied from the primary paper. Every number
+      cited. Blank cells where a paper doesn't report a figure.</p>
+    </details>
+  </nav>
+
+  <!-- ============================ chapter ============================ -->
+  <article>
+
+  <div class="chapmark"><span class="n">1</span><span class="l">Chapter one<br>Foundations</span></div>
+  <h1>Every token pays full price</h1>
+  <p class="standfirst">Why Mixture-of-Experts exists, and how a 47-billion-parameter
+  model does 13 billion parameters of work. By the end you'll derive Mixtral's spec
+  sheet from ten numbers &mdash; and read any MoE paper's headline without
+  flinching.</p>
+  <p class="byline">
+    <span>~16 min</span>
+    <span>Assumes: you know what a transformer FFN is</span>
+    <span>Everything else is built up from there</span>
+  </p>
+
+  <p>Type the word <strong>&ldquo;the&rdquo;</strong> into a language model. Now type
+  <strong>&ldquo;photosynthesis&rdquo;</strong>.</p>
+
+  <p>The model does <em>exactly</em> the same amount of arithmetic for both.</p>
+
+  <p>Same matrices. Same multiply-accumulates. Same joules. One of those tokens is a
+  grammatical shrug the model could predict in its sleep; the other drags in
+  chloroplasts and light-dependent reactions and a whole subfield of biology. The
+  model can't tell the difference, because it has exactly one brain and it runs all
+  of it, every single time.</p>
+
+  <p>That's a dense model. And once you notice how strange it is,
+  Mixture-of-Experts stops looking like an exotic trick and starts looking like the
+  obvious thing to try.</p>
+
+  <div class="rung feel">
+    <span class="tag">Feel it</span>
+    <p>A dense model is a hospital where <strong>every patient is seen by every
+    doctor</strong>. Cardiology, dermatology, oncology &mdash; all of them, for a
+    sprained ankle. MoE adds a triage desk that sends you to the two doctors you
+    actually need.</p>
+    <p><em>Where the analogy breaks:</em> the hospital still pays every doctor's
+    salary whether they see you or not. That single caveat is the entire subject of
+    <a href="06-systems-reality.html">chapter 6</a> &mdash; and it's why MoE is a
+    training-cost win but an inference-<em>memory</em> problem.</p>
+  </div>
+
+  <!-- ==================== ANIMATION 1 ==================== -->
+  <h2 id="live">See it happen first</h2>
+
+  <p>Before any equations, watch one token go through. Everything in this chapter is
+  a footnote to these eight stages &mdash; press play, or step through at your own
+  pace.</p>
+
+  <figure class="anim" id="anim1">
+    <svg viewBox="0 0 760 432" role="img" aria-label="An eight-stage walkthrough: a token arrives, the router scores all eight experts, the top two are kept, a softmax over just those two produces gate weights of 0.67 and 0.33, those two experts run while six stay idle, and their outputs are blended into one result.">
+      <defs>
+        <marker id="a1arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+        </marker>
+      </defs>
+
+      <!-- token -->
+      <g id="a1-token" class="node">
+        <rect x="290" y="14" width="180" height="30" rx="6" fill="var(--bg-sunken)" stroke="var(--rule-strong)"/>
+        <text x="380" y="34" text-anchor="middle" font-family="var(--mono)" font-size="13" fill="currentColor">&ldquo;photosynthesis&rdquo;</text>
+      </g>
+      <line x1="380" y1="46" x2="380" y2="62" stroke="currentColor" marker-end="url(#a1arw)"/>
+
+      <!-- router -->
+      <g id="a1-router" class="node">
+        <rect x="290" y="66" width="180" height="28" rx="6" fill="var(--router-soft)" stroke="var(--router)" stroke-width="2"/>
+        <text x="380" y="85" text-anchor="middle" font-family="var(--sans)" font-size="12" font-weight="700" fill="var(--router)">Router &nbsp;x &middot; W<tspan font-size="9" dy="3">g</tspan></text>
+      </g>
+
+      <!-- score bars (baseline y=170) -->
+      <g id="a1-bars" class="node">
+        <line x1="40" y1="170" x2="720" y2="170" stroke="var(--rule)"/>
+        <text x="40" y="112" font-family="var(--sans)" font-size="10" fill="var(--ink-faint)">router score per expert</text>
+      </g>
+
+      <!-- experts + bars + gates, generated positions -->
+      <g id="a1-cols"></g>
+
+      <!-- blend -->
+      <g id="a1-out" class="node">
+        <circle cx="380" cy="300" r="14" fill="var(--bg-raised)" stroke="var(--active)" stroke-width="2"/>
+        <text x="380" y="305" text-anchor="middle" font-family="var(--sans)" font-size="15" font-weight="700" fill="var(--active)">+</text>
+        <text x="404" y="305" font-family="var(--sans)" font-size="10.5" fill="var(--ink-soft)">blend, weighted by gate</text>
+        <line x1="380" y1="314" x2="380" y2="336" stroke="currentColor" marker-end="url(#a1arw)"/>
+        <text x="380" y="356" text-anchor="middle" font-family="var(--mono)" font-size="12.5" fill="currentColor">output</text>
+      </g>
+
+      <!-- ledger -->
+      <g id="a1-ledger" class="node">
+        <line x1="40" y1="382" x2="720" y2="382" stroke="var(--rule)"/>
+        <text x="40" y="404" font-family="var(--mono)" font-size="12" fill="var(--ink-soft)">
+          stored <tspan fill="var(--ink)" font-weight="700">1.41B</tspan>
+          &#160;&#160;used <tspan fill="var(--active)" font-weight="700">352M</tspan>
+          &#160;&#160;untouched <tspan fill="var(--idle)" font-weight="700">1.06B</tspan>
+        </text>
+        <text x="40" y="422" font-family="var(--sans)" font-size="11" fill="var(--ink-faint)">Six experts held in memory for this token and never multiplied by.</text>
+      </g>
+    </svg>
+  </figure>
+
+  <p>Two things in that sequence do all the work, and both are easy to miss.
+  <strong>The softmax happens <em>after</em> the cut, over only the two survivors</strong>
+  &mdash; which is why the gates sum to 1 across two experts rather than eight. And
+  the six losers aren't multiplied by zero; <strong>they are never computed at
+  all</strong>. That's not an optimisation detail. That's the entire idea.</p>
+
+  <h2 id="params">Where the parameters actually live</h2>
+
+  <p>To see why the FFN is the thing worth attacking, count. A transformer block has
+  two halves &mdash; attention and a feed-forward network &mdash; and they are not
+  remotely the same size.</p>
+
+  <p>Take Mixtral 8&times;7B's published config: model dimension
+  <code>d<sub>model</sub> = 4096</code>, FFN hidden dimension
+  <code>d<sub>ff</sub> = 14336</code>, 32 attention heads of dimension 128, but only
+  8 key/value heads (grouped-query attention).</p>
+
+  <div class="rung research">
+    <span class="tag">Why Mixtral, specifically</span>
+    <p>Because it's the one you can <em>check</em>. Mixtral's Table 1 publishes every
+    number needed to reconstruct its headline figures, and those figures reconcile to
+    within a rounding step &mdash; rarer than it ought to be. The weights are open, so
+    you can load it and verify me.</p>
+    <p>And architecturally it is the <strong>plainest possible MoE</strong>: eight
+    equal experts, top-2, and nothing else. No shared expert, no fine-grained
+    segmentation, no bias-based balancing, no node-limited routing. Every complication
+    this book introduces later is <em>absent</em> here, which is exactly what you want
+    from a base case.</p>
+    <p>What Mixtral is <em>not</em> is current practice. Its 8-experts-top-2 shape is
+    the 2024 design; the field has since moved to many-small-experts &mdash;
+    DeepSeek-V3 runs 256. Treat it as the skeleton, not the state of the art.
+    <a href="05-the-lineage.html">Chapter 5</a> is the story of why it changed.</p>
+  </div>
+
+  <p>The FFN is SwiGLU, so it's <em>three</em> matrices, not two &mdash; a gate
+  projection and an up projection going in, a down projection coming out:</p>
+
+  <div class="eq">
+    <span class="label">FFN params</span>
+    <div class="body">
+      3 <span class="op">&times;</span> <span class="v">d</span><sub>model</sub>
+      <span class="op">&times;</span> <span class="v">d</span><sub>ff</sub>
+      &nbsp;<span class="op">=</span>&nbsp;
+      3 <span class="op">&times;</span> 4096 <span class="op">&times;</span> 14336
+      &nbsp;<span class="op">=</span>&nbsp;
+      <span class="hl-active">176,160,768</span>
+    </div>
+    <div class="say">One feed-forward network in this model holds
+    <b>176 million parameters</b>. Three matrices, each 4096&nbsp;&times;&nbsp;14336.</div>
+  </div>
+
+  <p>Now attention. Query and output projections are full-size; key and value
+  projections are shrunk 4&times; by GQA:</p>
+
+  <div class="eq">
+    <span class="label">Attention params</span>
+    <div class="body">
+      2 <span class="op">&times;</span> (4096<span class="op">&times;</span>4096)<sub>Q,O</sub>
+      &nbsp;<span class="op">+</span>&nbsp;
+      2 <span class="op">&times;</span> (4096<span class="op">&times;</span>1024)<sub>K,V</sub>
+      &nbsp;<span class="op">=</span>&nbsp; <span class="hl-idle">41,943,040</span>
+    </div>
+    <div class="say">All of attention in one layer is <b>42 million parameters</b>
+    &mdash; less than a quarter of what the single FFN next to it costs.</div>
+  </div>
+
+  <p class="pull">At these dimensions a single FFN is <strong>81%</strong> of a
+  <em>dense</em> block's parameters. If you want to make a transformer bigger, the
+  FFN is where the size lives &mdash; so it's also the only place worth being
+  clever.</p>
+
+  <p>(Hold onto that &ldquo;dense&rdquo; qualifier. Once we replace that one FFN with
+  eight, the expert block swells to <strong>97%</strong> of the layer &mdash; which
+  is exactly why everything from here on is about managing experts, and almost
+  nothing is about attention.)</p>
+
+  <h2 id="wall">The dense wall</h2>
+
+  <p>So you want a smarter model. The reliable lever is <em>more parameters</em>, and
+  the cheapest place to put them is <code>d<sub>ff</sub></code>. Double it and the
+  model gets meaningfully better.</p>
+
+  <p>It also gets exactly twice as expensive. Every token, every layer, every forward
+  pass, forever. In a dense network <strong>parameters and arithmetic are welded
+  together</strong>: one more parameter is one more multiply-accumulate for every
+  token that ever passes through. Training cost, inference cost, and latency all rise
+  in lockstep with capacity.</p>
+
+  <p>That's the wall. Capacity is what you want; compute is what you pay; and in a
+  dense model there's no exchange rate between them &mdash; they're the same number
+  wearing two hats.</p>
+
+  <figure>
+    <svg viewBox="0 0 700 232" role="img" aria-label="A dense block and an MoE block side by side. Both have identical attention and residual paths; only the feed-forward slot differs. The dense block stores 176 million parameters and uses all of them, while the MoE block stores 1.41 billion and uses 352 million.">
+      <defs>
+        <marker id="f0a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+        </marker>
+      </defs>
+
+      <rect x="6" y="6" width="320" height="176" rx="10" fill="none" stroke="var(--rule)"/>
+      <rect x="374" y="6" width="320" height="176" rx="10" fill="none" stroke="var(--rule)"/>
+      <text x="166" y="28" text-anchor="middle" font-family="var(--sans)" font-size="12" font-weight="700" fill="currentColor">DENSE BLOCK</text>
+      <text x="534" y="28" text-anchor="middle" font-family="var(--sans)" font-size="12" font-weight="700" fill="currentColor">MoE BLOCK</text>
+
+      <!-- identical halves, drawn identically on purpose -->
+      <g font-family="var(--sans)" font-size="11.5" text-anchor="middle">
+        <rect x="86" y="42" width="160" height="26" rx="5" fill="var(--bg-sunken)" stroke="var(--rule-strong)"/>
+        <text x="166" y="59" fill="currentColor">Attention</text>
+        <rect x="454" y="42" width="160" height="26" rx="5" fill="var(--bg-sunken)" stroke="var(--rule-strong)"/>
+        <text x="534" y="59" fill="currentColor">Attention</text>
+      </g>
+      <line x1="166" y1="68" x2="166" y2="86" stroke="currentColor" marker-end="url(#f0a)"/>
+      <line x1="534" y1="68" x2="534" y2="86" stroke="currentColor" marker-end="url(#f0a)"/>
+
+      <!-- the ONE thing that differs -->
+      <rect x="86" y="90" width="160" height="44" rx="6" fill="var(--active-soft)" stroke="var(--active)" stroke-width="2"/>
+      <text x="166" y="110" text-anchor="middle" font-family="var(--sans)" font-size="12" font-weight="700" fill="var(--active)">FFN</text>
+      <text x="166" y="126" text-anchor="middle" font-family="var(--mono)" font-size="10" fill="var(--active)">always runs</text>
+
+      <rect x="454" y="90" width="160" height="18" rx="4" fill="var(--router-soft)" stroke="var(--router)" stroke-width="1.5"/>
+      <text x="534" y="103" text-anchor="middle" font-family="var(--sans)" font-size="10" font-weight="700" fill="var(--router)">Router</text>
+      <g>
+        <rect x="455" y="114" width="17" height="20" rx="3" fill="var(--idle-soft)" stroke="var(--idle)"/>
+        <rect x="475" y="114" width="17" height="20" rx="3" fill="var(--active-soft)" stroke="var(--active)" stroke-width="1.5"/>
+        <rect x="495" y="114" width="17" height="20" rx="3" fill="var(--idle-soft)" stroke="var(--idle)"/>
+        <rect x="515" y="114" width="17" height="20" rx="3" fill="var(--idle-soft)" stroke="var(--idle)"/>
+        <rect x="535" y="114" width="17" height="20" rx="3" fill="var(--idle-soft)" stroke="var(--idle)"/>
+        <rect x="555" y="114" width="17" height="20" rx="3" fill="var(--idle-soft)" stroke="var(--idle)"/>
+        <rect x="575" y="114" width="17" height="20" rx="3" fill="var(--active-soft)" stroke="var(--active)" stroke-width="1.5"/>
+        <rect x="595" y="114" width="17" height="20" rx="3" fill="var(--idle-soft)" stroke="var(--idle)"/>
+      </g>
+
+      <line x1="166" y1="134" x2="166" y2="152" stroke="currentColor" marker-end="url(#f0a)"/>
+      <line x1="534" y1="134" x2="534" y2="152" stroke="currentColor" marker-end="url(#f0a)"/>
+      <text x="166" y="170" text-anchor="middle" font-family="var(--mono)" font-size="11" fill="currentColor">output</text>
+      <text x="534" y="170" text-anchor="middle" font-family="var(--mono)" font-size="11" fill="currentColor">output</text>
+
+      <line x1="6" y1="196" x2="694" y2="196" stroke="var(--rule)"/>
+      <g font-family="var(--mono)" font-size="11">
+        <text x="20" y="218" fill="var(--ink-soft)">stored <tspan fill="var(--ink)" font-weight="700">176M</tspan> &#160;used <tspan fill="var(--active)" font-weight="700">176M</tspan> &#160;ratio <tspan fill="var(--ink)" font-weight="700">1.0&#215;</tspan></text>
+        <text x="388" y="218" fill="var(--ink-soft)">stored <tspan fill="var(--ink)" font-weight="700">1.41B</tspan> &#160;used <tspan fill="var(--active)" font-weight="700">352M</tspan> &#160;ratio <tspan fill="var(--active)" font-weight="700">4.0&#215;</tspan></text>
+      </g>
+    </svg>
+    <figcaption><b>Only one slot changed.</b> Attention and the residual path are
+    drawn identically because they <i>are</i> identical &mdash; MoE touches neither.
+    The dense block stores 176M and spends all of it; the MoE block stores 8&times;
+    that and spends 2&times;. Everything else in this book follows from that one
+    substitution.</figcaption>
+  </figure>
+
+  <div class="rung mech">
+    <span class="tag">The move</span>
+    <p><strong>Conditional computation:</strong> break the weld. Store a huge number
+    of parameters, but for any given token run only a small slice of them. Capacity
+    scales with what you <em>store</em>; cost scales with what you <em>touch</em>.
+    Make those two numbers different and you can buy capacity without buying
+    FLOPs.</p>
+  </div>
+
+  <p>The idea is old &mdash; Jacobs and Hinton were writing about mixtures of local
+  experts in 1991 &mdash; but it only became load-bearing for language models when
+  <a href="https://arxiv.org/abs/1701.06538">Shazeer et al. (2017)</a> bolted a
+  sparsely-gated MoE layer between LSTM layers and trained a 137-billion-parameter
+  model in an era when &ldquo;large&rdquo; meant a few hundred million.</p>
+
+  <h2 id="layer">What an MoE layer actually is</h2>
+
+  <p>Here's the entire architectural change, and it's smaller than you'd expect:</p>
+
+  <p><strong>Take the FFN. Make <span class="hl-active">N</span> copies of it. Add
+  one small matrix that scores which copies to use. Run only the top
+  <span class="hl-router">k</span>, and add their outputs together, weighted by their
+  scores.</strong></p>
+
+  <p>That's it. Attention is untouched. The residual stream is untouched. The only
+  thing that changed is that one FFN became <span class="v">N</span> FFNs plus a
+  router.</p>
+
+  <div class="rung math">
+    <span class="tag">The math</span>
+    <p>Formally, with <span class="v">N</span> experts
+    <span class="v">E</span><sub>1..N</sub> and a gating network
+    <span class="v">G</span>, the layer output is a weighted sum &mdash; equation 1
+    of <a href="https://arxiv.org/abs/1701.06538">Shazeer et al. (2017)</a>, and it
+    hasn't changed since:</p>
+  </div>
+
+  <div class="eq">
+    <span class="label">Shazeer 2017, eq. 1</span>
+    <div class="body">
+      <span class="v">y</span> &nbsp;<span class="op">=</span>&nbsp;
+      <span class="big">&Sigma;</span><sub><span class="v">i</span>=1</sub><sup><span class="v">N</span></sup>
+      &nbsp;<span class="hl-router"><span class="v">G</span>(<span class="v">x</span>)<sub><span class="v">i</span></sub></span>
+      &nbsp;<span class="op">&middot;</span>&nbsp;
+      <span class="hl-active"><span class="v">E</span><sub><span class="v">i</span></sub>(<span class="v">x</span>)</span>
+    </div>
+    <div class="say">The output is <b>every expert's answer, blended by how much the
+    router liked that expert</b>. The trick is that <span class="hl-router">G(x)</span>
+    is <b>sparse</b> &mdash; all but <i>k</i> entries are exactly zero, so all but
+    <i>k</i> of the <span class="hl-active">E<sub>i</sub>(x)</span> terms never have
+    to be computed at all.</div>
+  </div>
+
+  <p>That last sentence is the whole engineering payoff. The sum is written over all
+  <span class="v">N</span> experts, but a zero gate is a term you can skip &mdash;
+  you don't multiply by zero, you never do the multiply. Mathematically it's a sum
+  over <span class="v">N</span>; computationally it's a sum over
+  <span class="v">k</span>.</p>
+
+  <p>Mixtral instantiates this with <span class="v">N</span>&nbsp;=&nbsp;8,
+  <span class="v">k</span>&nbsp;=&nbsp;2, and SwiGLU experts:</p>
+
+  <div class="eq">
+    <span class="label">Mixtral, &sect;2.1</span>
+    <div class="body">
+      <span class="v">y</span> &nbsp;<span class="op">=</span>&nbsp;
+      <span class="big">&Sigma;</span><sub><span class="v">i</span>=0</sub><sup><span class="v">n</span>&minus;1</sup>
+      &nbsp;<span class="hl-router">Softmax(Top2(<span class="v">x</span> <span class="op">&middot;</span> <span class="v">W</span><sub><span class="v">g</span></sub>))<sub><span class="v">i</span></sub></span>
+      &nbsp;<span class="op">&middot;</span>&nbsp;
+      <span class="hl-active">SwiGLU<sub><span class="v">i</span></sub>(<span class="v">x</span>)</span>
+    </div>
+    <div class="say">Score all 8 experts with one small matrix
+    <b>W<sub>g</sub></b>, keep the best 2, softmax <i>those two scores only</i>, and
+    use them to blend the two experts' outputs &mdash; exactly stages 2 to 6 of the
+    animation above. Why softmax comes <i>after</i> the top-k is
+    <a href="02-the-router.html">chapter 2</a>.</div>
+  </div>
+
+  <!-- ==================== ANIMATION 2 ==================== -->
+  <h2 id="pertoken">Routing is per-token &mdash; and that's where the trouble starts</h2>
+
+  <p>The router runs independently for <em>every single token</em>. Not per sentence,
+  not per document &mdash; per token, at every MoE layer. So watch what happens when
+  a real sentence flows through and we keep a tally underneath each expert.</p>
+
+  <figure class="anim" id="anim2">
+    <svg viewBox="0 0 760 330" role="img" aria-label="Twelve tokens of a sentence routed one at a time through eight experts, each token lighting two. A usage tally builds under each expert and ends badly skewed: expert 4 is hit ten times out of twelve while expert 8 is never used at all.">
+      <g id="a2-sentence"></g>
+      <g id="a2-cols"></g>
+      <g id="a2-verdict" class="node">
+        <line x1="40" y1="278" x2="720" y2="278" stroke="var(--rule)"/>
+        <text id="a2-vtext" x="40" y="300" font-family="var(--sans)" font-size="12" fill="var(--ink-soft)"></text>
+        <text id="a2-vtext2" x="40" y="318" font-family="var(--sans)" font-size="12" fill="var(--ink-soft)"></text>
+      </g>
+    </svg>
+  </figure>
+
+  <div class="rung gotcha">
+    <span class="tag">The problem you just watched</span>
+    <p>Nothing in the architecture says the load has to be even. The router is
+    trained, it develops preferences, and preferences compound: an expert that gets
+    more tokens gets more gradient, gets better, and gets picked more. Meanwhile
+    expert 8 is 176 million parameters sitting in expensive memory contributing
+    literally nothing.</p>
+    <p>That's <strong>expert collapse</strong>, and it is the single biggest thing
+    standing between &ldquo;MoE works on paper&rdquo; and &ldquo;MoE works.&rdquo;
+    All of <a href="03-load-balancing.html">chapter 3</a> is about the loss term that
+    fixes it.</p>
+  </div>
+
+  <h2 id="derive">Derive the spec sheet yourself</h2>
+
+  <p>Mixtral is sold as &ldquo;47B total, 13B active.&rdquo; Those aren't marketing
+  numbers &mdash; they fall out of the config table, and you can reconstruct them in
+  about six lines. Do this once and every MoE announcement becomes legible.</p>
+
+  <p>You need ten numbers, all from the paper's Table 1:</p>
+
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>Parameter</th><th class="num">Value</th><th>Parameter</th><th class="num">Value</th></tr></thead>
+    <tbody>
+      <tr><td>dim</td><td class="num">4096</td><td>n_layers</td><td class="num">32</td></tr>
+      <tr><td>hidden_dim</td><td class="num">14336</td><td>vocab_size</td><td class="num">32000</td></tr>
+      <tr><td>n_heads</td><td class="num">32</td><td>head_dim</td><td class="num">128</td></tr>
+      <tr><td>n_kv_heads</td><td class="num">8</td><td>context_len</td><td class="num">32768</td></tr>
+      <tr><td>num_experts</td><td class="num">8</td><td>top_k_experts</td><td class="num">2</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <pre><code><span class="c-com"># Mixtral 8x7B — every number from Table 1, nothing else</span>
+d_model, d_ff, layers, vocab <span class="c-key">=</span> <span class="c-num">4096</span>, <span class="c-num">14336</span>, <span class="c-num">32</span>, <span class="c-num">32000</span>
+n_experts, top_k <span class="c-key">=</span> <span class="c-num">8</span>, <span class="c-num">2</span>
+kv_dim <span class="c-key">=</span> <span class="c-num">8</span> <span class="c-key">*</span> <span class="c-num">128</span>       <span class="c-com"># 1024 — GQA shrinks K,V 4x</span>
+
+<span class="c-com"># one SwiGLU expert is 3 matrices; attention is Q,O full + K,V shrunk</span>
+expert <span class="c-key">=</span> <span class="c-num">3</span> <span class="c-key">*</span> d_model <span class="c-key">*</span> d_ff              <span class="c-com"># 176,160,768</span>
+attn   <span class="c-key">=</span> <span class="c-num">2</span><span class="c-key">*</span>d_model<span class="c-key">**</span><span class="c-num">2</span> <span class="c-key">+</span> <span class="c-num">2</span><span class="c-key">*</span>d_model<span class="c-key">*</span>kv_dim  <span class="c-com">#  41,943,040</span>
+embed  <span class="c-key">=</span> <span class="c-num">2</span> <span class="c-key">*</span> vocab <span class="c-key">*</span> d_model           <span class="c-com"># 262,144,000</span>
+
+total  <span class="c-key">=</span> layers <span class="c-key">*</span> (n_experts <span class="c-key">*</span> expert <span class="c-key">+</span> attn) <span class="c-key">+</span> embed
+active <span class="c-key">=</span> layers <span class="c-key">*</span> (top_k     <span class="c-key">*</span> expert <span class="c-key">+</span> attn) <span class="c-key">+</span> embed
+
+<span class="c-key">print</span>(total, active, total <span class="c-key">/</span> active)
+<span class="c-com"># 46,701,477,888   12,878,610,432   3.63</span></code></pre>
+
+  <div class="stats">
+    <div class="stat"><div class="n">46.70B</div><div class="l">total parameters &mdash; the paper says &ldquo;47B&rdquo;</div></div>
+    <div class="stat"><div class="n">12.88B</div><div class="l">active per token &mdash; the paper says &ldquo;13B&rdquo;</div></div>
+    <div class="stat"><div class="n">3.63&times;</div><div class="l">sparsity ratio: stored &divide; used</div></div>
+  </div>
+
+  <p>Both land on the published figures. And notice the shape of the arithmetic:
+  <strong>the experts are the only term <code>n_experts</code> multiplies</strong>.
+  Attention and embeddings appear identically in both lines, which is why they're
+  &ldquo;free&rdquo; in the sparsity ratio and why the ratio (3.63&times;) is lower
+  than the naive 8&nbsp;&divide;&nbsp;2&nbsp;=&nbsp;4&times; you'd expect. The
+  non-expert parameters dilute it.</p>
+
+  <div class="problem">
+    <h4>Work it yourself</h4>
+    <p>DeepSeek-V3 is <strong>671B total, 37B active</strong> &mdash; an 18.1&times;
+    sparsity ratio, five times sparser than Mixtral. It uses 256 routed experts with
+    top-8 routing, plus 1 shared expert that runs for every token.</p>
+    <p><strong>Question:</strong> naively you'd expect a ratio near
+    256&nbsp;&divide;&nbsp;9&nbsp;&asymp;&nbsp;28&times;. The real figure is
+    18.1&times;. Without looking anything up, name the two effects that account for
+    the gap &mdash; and say which one you'd expect to dominate at this scale.</p>
+    <details>
+      <summary>Show the answer</summary>
+      <p><strong>1 &mdash; the non-expert floor.</strong> Attention, embeddings, and
+      the shared expert are paid in full on every token. They sit in the numerator
+      <em>and</em> the denominator, so they drag any sparsity ratio toward
+      1&times;. This is the same dilution that pulled Mixtral from 4&times; down to
+      3.63&times; &mdash; a 9% haircut.</p>
+      <p><strong>2 &mdash; the shared expert isn't optional.</strong> Of the ~9
+      experts active per token, 1 is shared and always on. It contributes to
+      <em>active</em> params while contributing only 1/257th of <em>total</em>. It
+      behaves like attention, not like a routed expert.</p>
+      <p><strong>Which dominates:</strong> the non-expert floor, and it isn't close.
+      DeepSeek-V3 uses Multi-head Latent Attention over 61 layers with a 129k vocab
+      &mdash; the attention and embedding block is large in absolute terms, and
+      unlike the experts it gets no sparsity discount at all. The lesson generalises:
+      <strong>as you crank the expert count, the dense remainder becomes the binding
+      constraint on your sparsity ratio.</strong> You can't route your way out of
+      attention.</p>
+      <p><em>Full credit if you said &ldquo;the stuff that isn't experts&rdquo; and
+      &ldquo;the shared expert always fires.&rdquo; The exact split needs numbers we
+      haven't given you.</em></p>
+    </details>
+  </div>
+
+  <div class="tryit">
+    <h4>Try it &mdash; build your own MoE</h4>
+    <p style="font-family:var(--sans);font-size:0.86rem;color:var(--ink-soft);margin-bottom:1rem">
+    Same Mixtral geometry, your choice of expert count and top-k. Watch what
+    decouples and what stubbornly doesn't.</p>
+
+    <div class="ctl">
+      <label for="ne">Experts (<span class="v">N</span>)</label>
+      <input type="range" id="ne" min="1" max="64" value="8">
+      <output id="neo">8</output>
+    </div>
+    <div class="ctl">
+      <label for="tk">Active (<span class="v">k</span>)</label>
+      <input type="range" id="tk" min="1" max="8" value="2">
+      <output id="tko">2</output>
+    </div>
+
+    <div id="grid" style="display:flex;flex-wrap:wrap;gap:3px;margin:1.1rem 0"></div>
+
+    <div class="stats" style="margin:0">
+      <div class="stat"><div class="n" id="rTot">46.70B</div><div class="l">total parameters (stored in VRAM)</div></div>
+      <div class="stat"><div class="n" id="rAct">12.88B</div><div class="l">active per token (arithmetic done)</div></div>
+      <div class="stat"><div class="n" id="rRat">3.63&times;</div><div class="l">sparsity ratio</div></div>
+    </div>
+    <p id="note" style="font-family:var(--sans);font-size:0.82rem;color:var(--ink-soft);margin:0.9rem 0 0"></p>
+  </div>
+
+  <h2 id="scoreboard">The scoreboard</h2>
+
+  <p>Here's what that decoupling buys in practice. Each bar is one model's
+  <em>entire</em> parameter count, normalised to the same width &mdash; the amber
+  portion is the share a single token actually touches.</p>
+
+  <figure>
+    <svg viewBox="0 0 720 258" role="img" aria-label="Share of parameters activated per token: a dense model uses 100 percent, Mixtral 8x7B uses 27.6 percent, and DeepSeek-V3 uses 5.5 percent." id="scorechart">
+      <g font-family="var(--sans)" font-size="12.5">
+
+        <text x="0" y="26" fill="currentColor" font-weight="700">Dense model (any size)</text>
+        <rect x="0" y="36" width="560" height="30" rx="4" fill="var(--idle)"/>
+        <rect class="sbar" data-w="560" x="0" y="36" width="0" height="30" rx="4" fill="var(--active)"/>
+        <text x="278" y="56" text-anchor="middle" font-size="12" font-weight="700" fill="var(--bg)">100% active</text>
+        <text x="574" y="56" fill="var(--ink-soft)" font-size="11.5">1.0&times; ratio</text>
+
+        <text x="0" y="106" fill="currentColor" font-weight="700">Mixtral 8&times;7B <tspan fill="var(--ink-faint)" font-weight="400">&middot; 8 experts, top-2</tspan></text>
+        <rect x="0" y="116" width="560" height="30" rx="4" fill="var(--idle)"/>
+        <rect class="sbar" data-w="154" x="0" y="116" width="0" height="30" rx="4" fill="var(--active)"/>
+        <rect x="154" y="116" width="2" height="30" fill="var(--bg)"/>
+        <text x="77" y="136" text-anchor="middle" font-size="12" font-weight="700" fill="var(--bg)">27.6%</text>
+        <text x="360" y="136" text-anchor="middle" font-size="11.5" fill="var(--bg)">72.4% idle &mdash; stored, not computed</text>
+        <text x="574" y="136" fill="var(--ink-soft)" font-size="11.5">3.6&times; ratio</text>
+
+        <text x="0" y="186" fill="currentColor" font-weight="700">DeepSeek-V3 <tspan fill="var(--ink-faint)" font-weight="400">&middot; 256 routed + 1 shared, top-8</tspan></text>
+        <rect x="0" y="196" width="560" height="30" rx="4" fill="var(--idle)"/>
+        <rect class="sbar" data-w="31" x="0" y="196" width="0" height="30" rx="4" fill="var(--active)"/>
+        <rect x="31" y="196" width="2" height="30" fill="var(--bg)"/>
+        <text x="42" y="216" font-size="12" font-weight="700" fill="var(--active)">5.5%</text>
+        <text x="300" y="216" text-anchor="middle" font-size="11.5" fill="var(--bg)">94.5% idle</text>
+        <text x="574" y="216" fill="var(--ink-soft)" font-size="11.5">18.1&times; ratio</text>
+
+        <line x1="0" y1="242" x2="700" y2="242" stroke="var(--rule)"/>
+        <rect x="0" y="248" width="10" height="10" rx="2" fill="var(--active)"/>
+        <text x="17" y="257" font-size="11" fill="var(--ink-faint)">computed for this token</text>
+        <rect x="176" y="248" width="10" height="10" rx="2" fill="var(--idle)"/>
+        <text x="193" y="257" font-size="11" fill="var(--ink-faint)">held in memory, untouched</text>
+      </g>
+    </svg>
+    <figcaption><b>Sparsity is a dial, and the field has been turning it hard.</b>
+    DeepSeek-V3 stores 671B parameters and touches 37B per token. Bars are normalised
+    to equal width because the absolute scales differ by 14&times; &mdash; exact
+    counts are in the table below.</figcaption>
+  </figure>
+
+  <div class="tablewrap">
+  <table>
+    <thead><tr>
+      <th>Model</th><th class="num">Total</th><th class="num">Active / token</th>
+      <th class="num">Ratio</th><th class="num">Experts</th><th class="num">Top-k</th>
+    </tr></thead>
+    <tbody>
+      <tr><td>Shazeer et al. (2017)</td><td class="num">137B</td><td class="num">&mdash;</td><td class="num">&mdash;</td><td class="num">&mdash;</td><td class="num">&mdash;</td></tr>
+      <tr><td>Switch-XXL</td><td class="num">395B</td><td class="num">&mdash;</td><td class="num">&mdash;</td><td class="num">64</td><td class="num">1</td></tr>
+      <tr><td>Switch-C</td><td class="num">1571B</td><td class="num">&mdash;</td><td class="num">&mdash;</td><td class="num">2048</td><td class="num">1</td></tr>
+      <tr><td><strong>Mixtral 8&times;7B</strong></td><td class="num">46.7B</td><td class="num">12.9B</td><td class="num">3.6&times;</td><td class="num">8</td><td class="num">2</td></tr>
+      <tr><td><strong>DeepSeek-V3</strong></td><td class="num">671B</td><td class="num">37B</td><td class="num">18.1&times;</td><td class="num">256 + 1</td><td class="num">8</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p style="font-family:var(--sans);font-size:0.8rem;color:var(--ink-faint)">
+  Dashes are honest. The Switch and Shazeer papers report total parameters and expert
+  counts but no directly comparable &ldquo;active parameters per token&rdquo; figure,
+  so this book won't invent one &mdash; and the Shazeer model's expert count varied
+  across configurations, so it stays blank rather than approximate.</p>
+
+  <div class="rung research">
+    <span class="tag">Research note</span>
+    <p>Switch Transformer reports up to a <strong>7&times; pre-training speedup</strong>
+    over a compute-matched T5-Base, and Switch-C reaching a fixed perplexity
+    <strong>4&times; faster</strong> than T5-XXL. Read those carefully: the speedup is
+    <em>per unit of compute</em>, at equal FLOPs. It is not a claim that the model is
+    smaller, cheaper to serve, or easier to train. Two of those three are in fact
+    worse.</p>
+  </div>
+
+  <h2 id="bill">The bill</h2>
+
+  <p>A book that only sold you the upside would be a brochure. Conditional
+  computation buys capacity per FLOP, and it pays in four currencies:</p>
+
+  <div class="rung gotcha">
+    <span class="tag">What it costs</span>
+    <p><strong>1 &middot; Memory doesn't get the discount.</strong> Every one of
+    Mixtral's 46.7B parameters must sit in VRAM, because the router might ask for any
+    of them on the next token. You buy compute like a 13B model and RAM like a 47B
+    one. &rarr; <a href="06-systems-reality.html">chapter 6</a></p>
+    <p><strong>2 &middot; Routers pick favourites.</strong> You watched it happen
+    above. Left alone, a router funnels everything into a handful of experts and the
+    rest atrophy into dead weight you still pay to store. &rarr;
+    <a href="03-load-balancing.html">chapter 3</a></p>
+    <p><strong>3 &middot; Experts have fixed-size buffers.</strong> GPUs need static
+    shapes, so each expert gets a capacity. Overflow it and your token is
+    <em>silently dropped</em> &mdash; it skips the FFN and rides the residual to the
+    next layer. Nothing errors. The loss just gets a bit worse. &rarr;
+    <a href="04-capacity-factor.html">chapter 4</a></p>
+    <p><strong>4 &middot; Experts don't fit on one GPU.</strong> So routing becomes a
+    network operation: two all-to-all collectives per MoE layer, in the critical path
+    of every forward pass. &rarr; <a href="06-systems-reality.html">chapter 6</a></p>
+  </div>
+
+  <p>None of these are dealbreakers &mdash; DeepSeek-V3 trained on 14.8 trillion
+  tokens for 2.788M H800 GPU-hours without a single irrecoverable loss spike, a
+  remarkable stability result for an architecture with this many moving parts. But
+  every one is a real engineering cost, and the next five chapters are largely about
+  how the field learned to pay them.</p>
+
+  <h2 id="specialise">One last thing, because it's not what you'd guess</h2>
+
+  <p>The name &ldquo;expert&rdquo; invites an assumption: expert 3 handles code,
+  expert 5 handles French, expert 7 does arithmetic. It's the natural reading, it's
+  what the hospital analogy implies, and it is &mdash; as far as anyone has been able
+  to measure &mdash; <strong>wrong</strong>.</p>
+
+  <div class="rung research">
+    <span class="tag">Research note</span>
+    <p>Mixtral's authors went looking for exactly this specialisation and reported:
+    <em>&ldquo;Surprisingly, we do not observe obvious patterns in the assignment of
+    experts based on the topic.&rdquo;</em> Routing distributions for arXiv papers,
+    biology abstracts, and philosophy text looked much the same. Only
+    DM&nbsp;Mathematics stood out, most likely because its synthetic templates make
+    it lexically peculiar.</p>
+    <p>What they <em>did</em> find was <strong>syntactic</strong> structure &mdash;
+    the token <code>self</code> in Python and the token <code>Question</code> in
+    English each route consistently, regardless of surrounding topic &mdash; and
+    strong <strong>positional locality</strong>: at layer 15, roughly
+    <strong>63&ndash;67%</strong> of consecutive tokens got the same expert, against
+    the ~12.5% random baseline the paper compares against.</p>
+    <p>So experts specialise, but by <em>token-level surface structure</em>, not by
+    subject. Keep that in your pocket &mdash; it's the fact that makes DeepSeekMoE's
+    fine-grained-expert argument in <a href="05-the-lineage.html">chapter 5</a> click
+    into place.</p>
+  </div>
+
+  <div class="takeaway">
+    <h4>What you can now do</h4>
+    <ul>
+      <li>Explain why the FFN, not attention, is the thing MoE replaces &mdash; with
+        the parameter counts to back it up.</li>
+      <li>Read &ldquo;671B total / 37B active&rdquo; and know precisely what was
+        traded for what.</li>
+      <li>Derive a published MoE model's headline numbers from its config table.</li>
+      <li>Explain why sparsity ratios never reach <span class="v">N</span>&thinsp;&divide;&thinsp;<span class="v">k</span>.</li>
+      <li>Name the four costs, and which chapter explains each.</li>
+    </ul>
+  </div>
+
+  <p>What we've waved at so far is the router &mdash; stages 2 through 4 of that
+  first animation went by fast, and &ldquo;picks the top 2&rdquo; hid the hard part.
+  The router has to make a <em>discrete</em> choice while staying differentiable
+  enough to train, and the tension between those two demands explains nearly every
+  design decision in the rest of this book.</p>
+
+  <nav class="seriesnav">
+    <span></span>
+    <a href="02-the-router.html">
+      <span class="k">Next chapter</span>
+      <span class="t"><strong>2 &middot; The router</strong> &mdash; softmax, top-k,
+      and the discrete-choice problem</span>
+    </a>
+  </nav>
+
+  <h3>Sources for this chapter</h3>
+  <ol class="refs">
+    <li>Shazeer, Mirhoseini, Maziarz, Davis, Le, Hinton &amp; Dean (2017).
+      <a href="https://arxiv.org/abs/1701.06538"><em>Outrageously Large Neural
+      Networks: The Sparsely-Gated Mixture-of-Experts Layer</em></a>. &mdash; eq. 1;
+      the 137B-parameter model.</li>
+    <li>Fedus, Zoph &amp; Shazeer (2021).
+      <a href="https://arxiv.org/abs/2101.03961"><em>Switch Transformers</em></a>.
+      &mdash; 7&times; and 4&times; speedups; Switch-XXL (395B, 64 experts) and
+      Switch-C (1571B, 2048 experts), Table 9.</li>
+    <li>Jiang et al. (2024).
+      <a href="https://arxiv.org/abs/2401.04088"><em>Mixtral of Experts</em></a>.
+      &mdash; Table 1 config; &sect;2.1 routing equation; 47B/13B; &sect;5 routing
+      analysis.</li>
+    <li>DeepSeek-AI (2024).
+      <a href="https://arxiv.org/abs/2412.19437"><em>DeepSeek-V3 Technical
+      Report</em></a>. &mdash; 671B/37B; 1 shared + 256 routed experts, top-8; 14.8T
+      tokens; 2.788M H800 GPU-hours.</li>
+  </ol>
+
+  </article>
+</div>
+
+<footer class="site"><div class="wrap">
+  MoE, Explained &middot; Chapter 1 of 6 &middot; Prose CC BY 4.0, code MIT &middot;
+  Every formula copied from the primary paper, not from memory.
+</div></footer>
+
+<script src="../assets/anim.js"></script>
+<script>
+/* ============================ reading progress ============================ */
+(function () {
+  var bar = document.getElementById('prog'),
+      art = document.querySelector('article');
+  function upd() {
+    var top = art.offsetTop,
+        h = art.offsetHeight - window.innerHeight,
+        p = h > 0 ? (window.scrollY - top) / h : 0;
+    bar.style.width = Math.max(0, Math.min(1, p)) * 100 + '%';
+  }
+  addEventListener('scroll', upd, { passive: true });
+  addEventListener('resize', upd);
+  upd();
+})();
+
+/* ===================== ANIMATION 1 — one token, routed ==================== */
+(function () {
+  var SVG = 'http://www.w3.org/2000/svg';
+  var LOGITS = [0.8, -0.3, 2.1, 0.5, -1.2, 1.4, 0.2, -0.6];
+  var TOP    = [2, 5];               // the two highest: E3 (2.1) and E6 (1.4)
+  var GATES  = { 2: '0.67', 5: '0.33' };  // softmax over ONLY those two
+  var BASE = 170, X0 = 49, W = 74, GAP = 10;
+
+  var cols = document.getElementById('a1-cols');
+  var els = [];
+
+  for (var i = 0; i < 8; i++) {
+    var x = X0 + i * (W + GAP), cx = x + W / 2;
+    var g = document.createElementNS(SVG, 'g');
+
+    // router -> expert flow line
+    var flow = document.createElementNS(SVG, 'line');
+    flow.setAttribute('x1', 380); flow.setAttribute('y1', 94);
+    flow.setAttribute('x2', cx);  flow.setAttribute('y2', 186);
+    flow.setAttribute('class', 'node');
+    g.appendChild(flow);
+
+    // score bar
+    var h = (LOGITS[i] + 1.5) * 14;
+    var bar = document.createElementNS(SVG, 'rect');
+    bar.setAttribute('x', cx - 9); bar.setAttribute('y', BASE - h);
+    bar.setAttribute('width', 18); bar.setAttribute('height', h);
+    bar.setAttribute('rx', 2);
+    bar.setAttribute('class', 'bar');
+    g.appendChild(bar);
+
+    // score value
+    var val = document.createElementNS(SVG, 'text');
+    val.setAttribute('x', cx); val.setAttribute('y', BASE - h - 5);
+    val.setAttribute('text-anchor', 'middle');
+    val.setAttribute('font-family', 'var(--mono)');
+    val.setAttribute('font-size', '10');
+    val.setAttribute('class', 'node');
+    val.textContent = LOGITS[i].toFixed(1);
+    g.appendChild(val);
+
+    // expert box
+    var box = document.createElementNS(SVG, 'rect');
+    box.setAttribute('x', x); box.setAttribute('y', 186);
+    box.setAttribute('width', W); box.setAttribute('height', 46);
+    box.setAttribute('rx', 6); box.setAttribute('class', 'node');
+    g.appendChild(box);
+
+    var lbl = document.createElementNS(SVG, 'text');
+    lbl.setAttribute('x', cx); lbl.setAttribute('y', 214);
+    lbl.setAttribute('text-anchor', 'middle');
+    lbl.setAttribute('font-family', 'var(--sans)');
+    lbl.setAttribute('font-size', '12');
+    lbl.textContent = 'E' + (i + 1);
+    g.appendChild(lbl);
+
+    // gate weight under the chosen experts
+    var gate = document.createElementNS(SVG, 'text');
+    gate.setAttribute('x', cx); gate.setAttribute('y', 252);
+    gate.setAttribute('text-anchor', 'middle');
+    gate.setAttribute('font-family', 'var(--mono)');
+    gate.setAttribute('font-size', '12');
+    gate.setAttribute('font-weight', '700');
+    gate.setAttribute('class', 'node');
+    gate.textContent = GATES[i] || '';
+    g.appendChild(gate);
+
+    // expert -> blend line
+    var out = document.createElementNS(SVG, 'line');
+    out.setAttribute('x1', cx); out.setAttribute('y1', 258);
+    out.setAttribute('x2', 380); out.setAttribute('y2', 288);
+    out.setAttribute('class', 'node');
+    g.appendChild(out);
+
+    cols.appendChild(g);
+    els.push({ flow: flow, bar: bar, val: val, box: box, lbl: lbl, gate: gate, out: out });
+  }
+
+  function set(el, on, fadeOnly) {
+    el.classList.toggle(fadeOnly ? 'fade' : 'hide', !on);
+  }
+
+  var STEPS = [
+    { caption: 'A token arrives at the MoE layer. Everything downstream is asleep.' },
+    { caption: 'The router — one small matrix <b>W<sub>g</sub></b> — is the only thing that runs first. It sees the token and nothing else.' },
+    { caption: 'It produces one score per expert. Eight numbers. That is the router\'s entire output.' },
+    { caption: 'Keep the top two: E3 at 2.1 and E6 at 1.4. The other six are eliminated here, before any FFN runs.' },
+    { caption: 'Softmax over <i>only the survivors</i> — so 0.67 and 0.33 sum to 1 across two experts, not across eight. This is the step most explanations skip.' },
+    { caption: 'Now the experts run. Two of them. The other six are held in memory and never multiplied by.' },
+    { caption: 'The two outputs are blended in proportion to their gates: 0.67 of E3 plus 0.33 of E6.' },
+    { caption: 'One token out. 352M parameters used, 1.06B sitting idle — and the next token may pick an entirely different pair.' }
+  ];
+
+  MoEAnim.create({
+    mount: document.getElementById('anim1'),
+    steps: STEPS,
+    interval: 2000,
+    render: function (s) {
+      document.getElementById('a1-router').classList.toggle('fade', s < 1);
+      document.getElementById('a1-bars').classList.toggle('hide', s < 2);
+      document.getElementById('a1-out').classList.toggle('hide', s < 6);
+      document.getElementById('a1-ledger').classList.toggle('hide', s < 7);
+
+      els.forEach(function (e, i) {
+        var isTop = TOP.indexOf(i) >= 0;
+        var chosen = s >= 3 && isTop;
+        var killed = s >= 3 && !isTop;
+
+        // score bars appear at stage 2, then split into kept vs eliminated
+        e.bar.classList.toggle('off', s < 2);
+        e.bar.setAttribute('fill', chosen ? 'var(--active)' : 'var(--router)');
+        e.bar.classList.toggle('fade', killed);
+        e.val.classList.toggle('hide', s < 2);
+        e.val.classList.toggle('fade', killed);
+        e.val.setAttribute('fill', chosen ? 'var(--active)' : 'var(--ink-soft)');
+
+        // the routing lines
+        e.flow.classList.toggle('hide', s < 1);
+        e.flow.setAttribute('stroke', chosen ? 'var(--router)' : 'var(--idle)');
+        e.flow.setAttribute('stroke-width', chosen ? 2 : 1);
+        e.flow.setAttribute('stroke-dasharray', chosen ? 'none' : '3 3');
+        e.flow.classList.toggle('fade', killed);
+
+        // expert boxes light only once they actually run, at stage 5
+        var running = s >= 5 && isTop;
+        e.box.setAttribute('fill', running ? 'var(--active-soft)' : 'var(--idle-soft)');
+        e.box.setAttribute('stroke', running ? 'var(--active)' : 'var(--idle)');
+        e.box.setAttribute('stroke-width', running ? 2 : 1);
+        e.box.classList.toggle('fade', killed && s >= 5);
+        e.lbl.setAttribute('fill', running ? 'var(--active)' : 'var(--idle)');
+        e.lbl.setAttribute('font-weight', running ? '700' : '400');
+        e.lbl.classList.toggle('fade', killed && s >= 5);
+
+        e.gate.classList.toggle('hide', !(s >= 4 && isTop));
+        e.gate.setAttribute('fill', 'var(--active)');
+
+        e.out.classList.toggle('hide', !(s >= 6 && isTop));
+        e.out.setAttribute('stroke', 'var(--active)');
+        e.out.setAttribute('stroke-width', 2);
+      });
+    }
+  });
+})();
+
+/* ============ ANIMATION 2 — per-token routing, and the skew ============== */
+(function () {
+  var SVG = 'http://www.w3.org/2000/svg';
+  var TOKENS = ['The','cat','sat','on','the','mat','and','ate','a','small','green','leaf'];
+  // which two experts each token happens to pick
+  var PICKS = [[3,0],[3,5],[3,1],[0,3],[3,0],[2,3],[0,4],[3,2],[0,3],[5,3],[2,6],[3,5]];
+  var X0 = 49, W = 74, GAP = 10, BASE = 250;
+
+  // ---- sentence strip ----
+  var sent = document.getElementById('a2-sentence');
+  var toks = [];
+  var tx = 40;
+  TOKENS.forEach(function (t, i) {
+    var w = t.length * 8 + 16;
+    var r = document.createElementNS(SVG, 'rect');
+    r.setAttribute('x', tx); r.setAttribute('y', 14);
+    r.setAttribute('width', w); r.setAttribute('height', 24);
+    r.setAttribute('rx', 4); r.setAttribute('class', 'node');
+    var x = document.createElementNS(SVG, 'text');
+    x.setAttribute('x', tx + w / 2); x.setAttribute('y', 31);
+    x.setAttribute('text-anchor', 'middle');
+    x.setAttribute('font-family', 'var(--mono)');
+    x.setAttribute('font-size', '11.5');
+    x.textContent = t;
+    sent.appendChild(r); sent.appendChild(x);
+    toks.push({ r: r, t: x });
+    tx += w + 6;
+  });
+
+  // ---- expert columns with tally bars ----
+  var cols = document.getElementById('a2-cols');
+  var ex = [];
+  for (var i = 0; i < 8; i++) {
+    var bx = X0 + i * (W + GAP), cx = bx + W / 2;
+    var g = document.createElementNS(SVG, 'g');
+
+    var box = document.createElementNS(SVG, 'rect');
+    box.setAttribute('x', bx); box.setAttribute('y', 70);
+    box.setAttribute('width', W); box.setAttribute('height', 42);
+    box.setAttribute('rx', 6); box.setAttribute('class', 'node');
+    g.appendChild(box);
+
+    var lbl = document.createElementNS(SVG, 'text');
+    lbl.setAttribute('x', cx); lbl.setAttribute('y', 96);
+    lbl.setAttribute('text-anchor', 'middle');
+    lbl.setAttribute('font-family', 'var(--sans)');
+    lbl.setAttribute('font-size', '12');
+    lbl.textContent = 'E' + (i + 1);
+    g.appendChild(lbl);
+
+    // tally bar grows downward from y=126
+    var tal = document.createElementNS(SVG, 'rect');
+    tal.setAttribute('x', cx - 11); tal.setAttribute('y', 126);
+    tal.setAttribute('width', 22); tal.setAttribute('height', 0);
+    tal.setAttribute('rx', 2); tal.setAttribute('fill', 'var(--router)');
+    tal.setAttribute('class', 'tally');
+    g.appendChild(tal);
+
+    var cnt = document.createElementNS(SVG, 'text');
+    cnt.setAttribute('x', cx); cnt.setAttribute('y', BASE + 16);
+    cnt.setAttribute('text-anchor', 'middle');
+    cnt.setAttribute('font-family', 'var(--mono)');
+    cnt.setAttribute('font-size', '11.5');
+    cnt.setAttribute('font-weight', '700');
+    g.appendChild(cnt);
+
+    cols.appendChild(g);
+    ex.push({ box: box, lbl: lbl, tal: tal, cnt: cnt });
+  }
+
+  var STEPS = TOKENS.map(function (t, i) {
+    return { caption: 'Token <b>&ldquo;' + t + '&rdquo;</b> routes to E' +
+             (PICKS[i][0] + 1) + ' and E' + (PICKS[i][1] + 1) +
+             '. The tally underneath each expert is running.' };
+  });
+  STEPS.push({ caption: 'Twelve tokens, twenty-four assignments. <b>E4 took ten of them. E8 took none.</b> Nothing enforced fairness — the router simply had preferences, and preferences compound.' });
+
+  MoEAnim.create({
+    mount: document.getElementById('anim2'),
+    steps: STEPS,
+    interval: 1100,
+    render: function (s) {
+      var counts = [0,0,0,0,0,0,0,0];
+      var upto = Math.min(s, TOKENS.length - 1);
+      for (var t = 0; t <= upto; t++) {
+        counts[PICKS[t][0]]++; counts[PICKS[t][1]]++;
+      }
+      var done = s >= TOKENS.length;
+
+      toks.forEach(function (o, i) {
+        var active = i === upto && !done;
+        var seen = i <= upto;
+        o.r.setAttribute('fill', active ? 'var(--router-soft)' : 'var(--bg-sunken)');
+        o.r.setAttribute('stroke', active ? 'var(--router)' : 'var(--rule)');
+        o.r.setAttribute('stroke-width', active ? 2 : 1);
+        o.t.setAttribute('fill', seen ? 'currentColor' : 'var(--ink-faint)');
+        o.r.classList.toggle('fade', !seen);
+        o.t.classList.toggle('fade', !seen);
+      });
+
+      ex.forEach(function (e, i) {
+        var firing = !done && PICKS[upto].indexOf(i) >= 0;
+        e.box.setAttribute('fill', firing ? 'var(--active-soft)' : 'var(--idle-soft)');
+        e.box.setAttribute('stroke', firing ? 'var(--active)' : 'var(--idle)');
+        e.box.setAttribute('stroke-width', firing ? 2 : 1);
+        e.lbl.setAttribute('fill', firing ? 'var(--active)' : 'var(--idle)');
+        e.lbl.setAttribute('font-weight', firing ? '700' : '400');
+
+        var h = counts[i] * 11;
+        e.tal.setAttribute('height', h);
+        // at the end, colour the extremes so the skew is unmissable
+        e.tal.setAttribute('fill',
+          done && counts[i] >= 8 ? 'var(--danger)' :
+          done && counts[i] === 0 ? 'var(--idle)' :
+          firing ? 'var(--active)' : 'var(--router)');
+        e.cnt.textContent = counts[i];
+        e.cnt.setAttribute('fill',
+          done && counts[i] >= 8 ? 'var(--danger)' :
+          done && counts[i] === 0 ? 'var(--danger)' : 'var(--ink-faint)');
+      });
+
+      var v1 = document.getElementById('a2-vtext'),
+          v2 = document.getElementById('a2-vtext2');
+      if (done) {
+        v1.textContent = 'E4 handled 10 of 12 tokens. E8 handled none — 176M parameters, zero contribution.';
+        v2.textContent = 'This is expert collapse. Chapter 3 is the loss term that prevents it.';
+        v1.setAttribute('fill', 'var(--danger)');
+      } else {
+        v1.textContent = 'Token ' + (upto + 1) + ' of 12 — watch the tally, not the token.';
+        v2.textContent = '';
+        v1.setAttribute('fill', 'var(--ink-soft)');
+      }
+    }
+  });
+})();
+
+/* ================= scoreboard bars, filled on first sight ================= */
+(function () {
+  var chart = document.getElementById('scorechart');
+  var bars = chart.querySelectorAll('.sbar');
+  function fill() {
+    bars.forEach(function (b, i) {
+      var w = +b.dataset.w;
+      if (MoEAnim.REDUCE) { b.setAttribute('width', w); return; }
+      var t0 = null, dur = 750 + i * 120;
+      requestAnimationFrame(function step(ts) {
+        if (!t0) t0 = ts;
+        var p = Math.min(1, (ts - t0) / dur);
+        p = 1 - Math.pow(1 - p, 3);                    // ease-out cubic
+        b.setAttribute('width', (w * p).toFixed(1));
+        if (p < 1) requestAnimationFrame(step);
+      });
+    });
+  }
+  if ('IntersectionObserver' in window) {
+    var io = new IntersectionObserver(function (es) {
+      es.forEach(function (e) { if (e.isIntersecting) { fill(); io.disconnect(); } });
+    }, { threshold: 0.4 });
+    io.observe(chart);
+  } else { fill(); }
+})();
+
+/* ===================== the build-your-own-MoE calculator ================== */
+(function () {
+  var D = 4096, F = 14336, L = 32, V = 32000;
+  var EXPERT = 3 * D * F;                      // 176,160,768
+  var ATTN   = 2 * D * D + 2 * D * (8 * 128);  //  41,943,040
+  var EMBED  = 2 * V * D;                      // 262,144,000
+
+  var ne = document.getElementById('ne'), tk = document.getElementById('tk');
+  var neo = document.getElementById('neo'), tko = document.getElementById('tko');
+  var grid = document.getElementById('grid'), note = document.getElementById('note');
+
+  function B(x) { return (x / 1e9).toFixed(2) + 'B'; }
+
+  function render() {
+    var N = +ne.value;
+    tk.max = N;
+    if (+tk.value > N) tk.value = N;
+    var K = +tk.value;
+
+    neo.textContent = N;
+    tko.textContent = K;
+
+    var total  = L * (N * EXPERT + ATTN) + EMBED;
+    var active = L * (K * EXPERT + ATTN) + EMBED;
+
+    document.getElementById('rTot').textContent = B(total);
+    document.getElementById('rAct').textContent = B(active);
+    document.getElementById('rRat').innerHTML = (total / active).toFixed(2) + '&times;';
+
+    var html = '';
+    for (var i = 0; i < N; i++) {
+      var on = i < K;
+      html += '<span title="Expert ' + (i + 1) + (on ? ' — active' : ' — idle') + '"' +
+        ' style="width:14px;height:14px;border-radius:3px;display:inline-block;' +
+        'background:' + (on ? 'var(--active)' : 'var(--idle-soft)') + ';' +
+        'border:1px solid ' + (on ? 'var(--active)' : 'var(--idle)') + '"></span>';
+    }
+    grid.innerHTML = html;
+
+    var msg;
+    if (N === 1) {
+      msg = 'N = 1 is just a dense model. No router, no sparsity, ratio 1.00× — the baseline you are trying to beat.';
+    } else if (K === N) {
+      msg = 'k = N means every expert runs for every token. You are paying MoE memory costs for zero compute savings — strictly worse than dense.';
+    } else if (N === 8 && K === 2) {
+      msg = 'This is Mixtral 8×7B exactly. 46.70B total, 12.88B active — the published “47B / 13B”.';
+    } else {
+      msg = 'The ratio never quite reaches N ÷ k = ' + (N / K).toFixed(1) +
+            '×. Attention and embeddings sit in both totals unchanged, diluting the sparsity.';
+    }
+    note.textContent = msg;
+  }
+
+  ne.addEventListener('input', render);
+  tk.addEventListener('input', render);
+  render();
+})();
+</script>
+
+</body>
+</html>
