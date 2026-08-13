@@ -173,8 +173,12 @@
   <p>Going 16&times; wider in experts, the all-to-all share of runtime more than
   doubles and hardware utilisation falls from over 70% of roofline to under half. This
   is the systems half of the story <a href="05-the-lineage.html#2021">chapter 5</a>
-  told from the modelling side: Switch-C's 2048 experts lost to Switch-XXL's 64 partly
-  because of what you're looking at here.</p>
+  told from the modelling side. Though be careful attributing the Switch-C/Switch-XXL
+  gap to communication: the paper itself explains it by compute per token &mdash;
+  <em>&ldquo;the Switch-XXL model applies ~10x the FLOPS per token than the Switch-C
+  model&rdquo;</em> &mdash; and attaches its communication caveat to Switch-XXL, not
+  Switch-C. What you're looking at here is why 2048 experts are expensive to
+  <em>run</em>, which is a related but separate claim.</p>
 
   <div class="rung math">
     <span class="tag">The scaling law, and its fine print</span>
@@ -362,9 +366,10 @@
     <strong>(b)</strong> A colleague argues that since only 13B parameters are active,
     you should be able to serve it in roughly the memory of a 13B dense model, loading
     experts on demand. What's wrong with that?<br>
-    <strong>(c)</strong> Using chapter 2's finding that ~63&ndash;67% of consecutive
-    tokens route to the same expert at layer 15, say whether on-demand loading is
-    hopeless or merely difficult &mdash; and what you'd measure to decide.</p>
+    <strong>(c)</strong> Using chapter 2's finding that ~24&ndash;28% of consecutive
+    tokens reuse the same top-1 expert at layer 15 (against a 12.5% baseline), say
+    whether on-demand loading is hopeless or merely difficult &mdash; and what you'd
+    measure to decide.</p>
     <details>
       <summary>Show the answer</summary>
       <p><strong>(a)</strong> 46.7B parameters &times; 2 bytes =
@@ -377,11 +382,12 @@
       roughly an order of magnitude slower than HBM; streaming an expert in to use it
       once costs far more time than the arithmetic it enables. You'd convert a
       memory-bound problem into a much worse PCIe-bound one.</p>
-      <p><strong>(c)</strong> Merely difficult, and the locality is exactly why. If
-      63–67% of consecutive tokens reuse the same expert at a given layer, then an
-      expert you just paged in has a roughly two-in-three chance of being wanted again
-      next token — a cache hit rate that makes an LRU expert cache genuinely viable,
-      which is the basis of real offloading systems.</p>
+      <p><strong>(c)</strong> Merely difficult, and the locality is why — though the
+      effect is smaller than the headline figure suggests. Top-1 reuse at layer 15 runs
+      24–28% against a 12.5% baseline: roughly <em>twice</em> chance, not five times.
+      So an expert you just paged in has about a one-in-four chance of being wanted
+      again next token. That is well short of a free lunch, but it is a real signal,
+      and it is what makes an LRU expert cache worth building rather than hopeless.</p>
       <p>What you'd measure: <strong>the hit rate of a fixed-size expert cache under a
       real request trace</strong>, per layer — because chapter 2's figure is for layer
       15 specifically, and locality varied by depth. Then compare the amortised

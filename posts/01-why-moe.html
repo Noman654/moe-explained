@@ -620,11 +620,15 @@ active <span class="c-key">=</span> layers <span class="c-key">*</span> (top_k  
   <div class="rung research">
     <span class="tag">Research note</span>
     <p>Switch Transformer reports up to a <strong>7&times; pre-training speedup</strong>
-    over a compute-matched T5-Base, and Switch-C reaching a fixed perplexity
-    <strong>4&times; faster</strong> than T5-XXL. Read those carefully: the speedup is
-    <em>per unit of compute</em>, at equal FLOPs. It is not a claim that the model is
-    smaller, cheaper to serve, or easier to train. Two of those three are in fact
-    worse.</p>
+    over T5-Base, and Switch-C reaching a fixed perplexity <strong>4&times; faster</strong>
+    than T5-XXL. Those two numbers mean different things, and it matters.</p>
+    <p>The <strong>7&times;</strong> is at <em>equal FLOPs per token</em> &mdash;
+    Switch-Base is explicitly FLOP-matched to T5-Base. The <strong>4&times;</strong> is
+    at equal <em>training budget</em>: Switch-C actually applies far fewer FLOPs per
+    sequence than T5-XXL (890B vs 6.3T, Table 9). It is the FLOP-matched
+    <em>Switch-XXL</em>, not Switch-C, that compares like for like. Neither number
+    claims the model is smaller, cheaper to serve, or easier to train &mdash; two of
+    those three are in fact worse.</p>
   </div>
 
   <h2 id="bill">The bill</h2>
@@ -676,9 +680,13 @@ active <span class="c-key">=</span> layers <span class="c-key">*</span> (top_k  
     <p>What they <em>did</em> find was <strong>syntactic</strong> structure &mdash;
     the token <code>self</code> in Python and the token <code>Question</code> in
     English each route consistently, regardless of surrounding topic &mdash; and
-    strong <strong>positional locality</strong>: at layer 15, roughly
-    <strong>63&ndash;67%</strong> of consecutive tokens got the same expert, against
-    the ~12.5% random baseline the paper compares against.</p>
+    strong <strong>positional locality</strong>. Read Table 5 carefully, because it holds
+    two different measures: at layer 15, <strong>24&ndash;28%</strong> of consecutive
+    tokens get the same <em>top-1</em> expert, against the paper's stated 12.5% random
+    baseline &mdash; while <strong>62&ndash;67%</strong> share an expert among either
+    of their two choices, against the ~46% baseline the paper gives for
+    <em>that</em> measure. Pairing one column's numbers with the other's baseline is an
+    easy mistake, and it inflates a real effect into an implausible one.</p>
     <p>So experts specialise, but by <em>token-level surface structure</em>, not by
     subject. Keep that in your pocket &mdash; it's the fact that makes DeepSeekMoE's
     fine-grained-expert argument in <a href="05-the-lineage.html">chapter 5</a> click

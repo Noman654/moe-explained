@@ -308,11 +308,16 @@
     performance could be degraded.&rdquo;</em></p>
   </div>
 
-  <p>That is worth sitting with, because it inverts the framing. A dropped token isn't
-  simply lost value to be recovered at any cost. <strong>Forcing it into the wrong
-  expert can be worse than sending it nowhere.</strong> Skipping the FFN leaves the
-  residual stream untouched &mdash; a null operation. Processing by the wrong
-  specialist actively writes noise into it.</p>
+  <p>That is worth sitting with, because it complicates the framing. A dropped token
+  isn't simply lost value to be recovered at any cost &mdash; the obvious rescue bought
+  nothing measurable.</p>
+  <p>Why not? The authors offer a hypothesis and explicitly label it as one:
+  <em>&ldquo;We suspect that once the network learns associations between different
+  tokens and experts, if this association is changed&hellip; then performance could be
+  degraded.&rdquo;</em> The tempting extension &mdash; that skipping the FFN is a null
+  operation while the wrong expert actively writes noise &mdash; is a reading I find
+  persuasive, but it is <strong>my inference, not a measurement</strong>. What the
+  paper establishes is only that rerouting didn't help.</p>
 
   <p>GShard hedges differently: rather than a hard second choice, it dispatches to the
   runner-up <em>stochastically</em>, with probability proportional to that expert's
@@ -337,8 +342,9 @@
       <span class="v">G</span>, <span class="v">I</span> <span class="op">=</span>
       TopK(<span class="hl-active"><span class="v">S</span><sup>&#8868;</sup></span>, <span class="v">k</span>)
     </div>
-    <div class="say">The entire idea is that <b>transpose</b>. Take the top-k along the
-    <i>expert</i> axis instead of the token axis, and every expert selects exactly
+    <div class="say">The entire idea is that <b>transpose</b>. Ordinary routing takes
+    the top-k across each token's <i>row</i> of expert scores; Expert Choice takes it
+    down each expert's <i>column</i> instead, so every expert selects exactly
     <i>k</i> tokens &mdash; by construction, with no loss term required.</div>
   </div>
 

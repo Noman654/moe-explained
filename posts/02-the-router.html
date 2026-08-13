@@ -31,7 +31,7 @@
         <li><a href="01-why-moe.html">Every token pays full price</a></li>
         <li><a href="02-the-router.html" aria-current="page">The router</a>
           <ul class="inchap">
-            <li><a href="#tiny">One part in 44,538</a></li>
+            <li><a href="#tiny">One part in 44,537</a></li>
             <li><a href="#job">The job</a></li>
             <li><a href="#gradient">Why the gate must multiply</a></li>
             <li><a href="#ordering">The ordering nobody mentions</a></li>
@@ -101,7 +101,7 @@
     </div>
     <div class="say">Every router in the entire model, added together, is
     <b>about one million parameters</b> &mdash; against 46.7 billion in the model as a
-    whole. That's <b>one part in 44,538</b>, or 0.0022%.</div>
+    whole. That's <b>one part in 44,537</b>, or 0.0022%.</div>
   </div>
 
   <p class="pull">The router is a rounding error in the parameter count and it decides
@@ -328,10 +328,12 @@
       every gate to exactly 1.0 and destroy the confidence signal entirely.</li>
   </ul>
 
-  <p>Which explains the pattern you'll see across the literature: <strong>top-1
-  architectures tend to softmax over everything; top-k&gt;1 architectures tend to
-  normalise over the survivors.</strong> The two choices aren't arbitrary — they're
-  each the only sensible option given the <span class="v">k</span> they picked.
+  <p>Which explains a pattern you'll see often, though not universally: <strong>top-1
+  architectures tend to softmax over everything; top-k&gt;1 architectures often
+  normalise over the survivors.</strong> It is a tendency, not a rule &mdash;
+  DeepSeekMoE activates 6 routed experts yet softmaxes over <em>all</em> of them and
+  uses the surviving scores without renormalising, which is the Switch ordering at
+  k&nbsp;&gt;&nbsp;1.
   DeepSeek-V3 follows the same logic, normalising its 8 selected gates so they sum to
   1 (we'll do that equation properly in <a href="03-load-balancing.html">chapter 3</a>,
   because its selection rule has a twist).</p>
@@ -376,18 +378,24 @@
     computing them.</div>
   </div>
 
-  <p>So why deliberately corrupt the scores? Because a router with no noise is a
-  router that can never change its mind. If expert 3 leads expert 6 by a comfortable
-  margin, expert 6 is <em>never selected</em>, so it never runs, so it never receives
-  gradient, so it never improves, so it never catches up. Noise occasionally lets the
-  underdog through &mdash; and if it turns out to be good, the gradient it earns pulls
-  its score up for real.</p>
+  <p>So why deliberately corrupt the scores? The paper's own answer is narrower and
+  more interesting than the one usually given. &sect;2.1 says only that
+  <em>&ldquo;the noise term helps with load balancing, as will be discussed in
+  Appendix A&rdquo;</em> &mdash; and Appendix A gives the mechanism: the noise is what
+  makes <strong>Load(X) a smooth, differentiable estimator</strong> of how many
+  examples each expert receives. Without randomness, that load is a hard count with no
+  gradient (the exact problem <a href="03-load-balancing.html">chapter 3</a> is built
+  around). With it, you can write a load-balancing loss you can actually
+  backpropagate.</p>
 
-  <p>It is exploration, in exactly the reinforcement-learning sense. And you'll notice
-  it is aimed squarely at the same disease you watched take hold at the end of
-  <a href="01-why-moe.html#pertoken">chapter 1</a>: the rich getting richer. Noisy
-  top-k is the first, weakest attempt at load balancing. <a href="03-load-balancing.html">Chapter
-  3</a> is what happened when it proved insufficient.</p>
+  <div class="rung math">
+    <span class="tag">My gloss, labelled as such</span>
+    <p>Noise is often explained as <em>exploration</em> &mdash; letting an underdog
+    expert occasionally win so it can earn the gradient it needs to improve. That
+    reading is intuitive and probably part of the story, but I want to be clear it is
+    <strong>my gloss, not Shazeer's claim</strong>: the paper's stated purpose is
+    differentiable load estimation, and it never frames the noise as exploration.</p>
+  </div>
 
   <h2 id="reality">What routing actually looks like</h2>
 
@@ -403,17 +411,21 @@
     lexically peculiar rather than because it is mathematical.</p>
     <p>What they did find was <strong>syntactic</strong>: the token <code>self</code>
     in Python and <code>Question</code> in English each route consistently regardless
-    of surrounding topic. And <strong>positional locality</strong> &mdash; at layer 15,
-    roughly <strong>63&ndash;67%</strong> of consecutive tokens were assigned the same
-    expert, against the ~12.5% random baseline the paper compares against.</p>
+    of surrounding topic. And <strong>positional locality</strong>. Table 5 reports two
+    distinct measures and it is worth keeping them apart: at layer 15,
+    <strong>24&ndash;28%</strong> of consecutive tokens share the same <em>top-1</em>
+    expert, against the paper's stated 12.5% random baseline &mdash; and
+    <strong>62&ndash;67%</strong> share an expert as either first <em>or</em> second
+    choice, against the ~46% baseline the paper gives for that one.</p>
   </div>
 
-  <p>That last figure deserves a moment. Consecutive tokens sharing an expert five
-  times more often than chance means routing decisions are <em>strongly correlated
-  along the sequence</em>. This is very good news for systems people &mdash; it means
-  expert activations have temporal locality you can cache and batch against &mdash;
-  and it is why <a href="06-systems-reality.html">chapter 6</a> can say anything
-  useful about MoE inference at all.</p>
+  <p>Those ratios deserve a moment. Top-1 repetition runs about
+  <strong>1.9&ndash;2.3&times; chance</strong>, and first-or-second overlap about
+  <strong>1.3&ndash;1.4&times;</strong>. Modest multiples &mdash; but a real,
+  consistent correlation along the sequence, which is very good news for systems
+  people: expert activations have temporal locality you can cache and batch against.
+  It's why <a href="06-systems-reality.html">chapter 6</a> can say anything useful
+  about MoE inference at all.</p>
 
   <p>It also reframes the word “expert.” These aren't specialists in
   <em>subjects</em>. They're specialists in <em>token shapes</em>: this expert handles

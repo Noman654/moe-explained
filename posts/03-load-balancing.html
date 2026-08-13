@@ -220,23 +220,21 @@
     <p>You don't have to take my derivation on faith &mdash; Switch states the split
     explicitly: <em>&ldquo;The objective can also be differentiated as the P-vector is
     differentiable, but the f-vector is not.&rdquo;</em></p>
-    <p>GShard, arriving at the same problem a year earlier, made the same substitution
-    for the same reason: it replaces a non-differentiable
+    <p>GShard, six months earlier, made the same substitution for the same reason: it
+    replaces a non-differentiable
     (<span class="v">c</span><sub><span class="v">e</span></sub>/<span class="v">S</span>)<sup>2</sup>
     term with
     <span class="v">m</span><sub><span class="v">e</span></sub> <span class="op">&middot;</span>
     (<span class="v">c</span><sub><span class="v">e</span></sub>/<span class="v">S</span>),
-    pairing a hard count with a soft mean gate. Two labs, two years apart, both landed
-    on <em>multiply the count you can't differentiate by the probability you
-    can</em>.</p>
+    pairing a hard count with a soft mean gate.</p>
+    <p>These are not independent discoveries, and I shouldn't imply otherwise: both are
+    Google papers about six months apart, Noam Shazeer is an author on both, and Switch
+    cites GShard directly. It's one lineage refining its own trick &mdash; which is
+    still worth noticing, because the refinement survived every subsequent redesign.</p>
   </div>
 
-  <p>Which is a useful sanity check on how central this trick is: when independent
-  groups converge on the same odd-looking product, it's usually because the
-  constraint &mdash; not the taste &mdash; forced it.</p>
-
   <figure class="anim" id="anim2">
-    <svg viewBox="0 0 760 350" role="img" aria-label="Eight experts with uneven measured load. The gradient produced by the auxiliary loss on each expert's routing probability is shown as a downward arrow whose size is proportional to that expert's load, so the most overloaded expert is pushed down twenty-one times harder than the least used one.">
+    <svg viewBox="0 0 760 350" role="img" aria-label="Eight experts with uneven measured load. The gradient produced by the auxiliary loss on each expert's routing probability is shown as a downward arrow whose size is proportional to that expert's load, so the most overloaded expert is pushed down forty times harder than the least used one.">
       <g id="a2-cols"></g>
       <line x1="40" y1="286" x2="720" y2="286" stroke="var(--rule)"/>
       <text id="a2-cap1" x="40" y="308" font-family="var(--sans)" font-size="12" font-weight="700" fill="currentColor"></text>
@@ -349,9 +347,9 @@
     the z-loss. Two of the three exist purely to stop the router misbehaving.</div>
   </div>
 
-  <p>Which should tell you something. <strong>Two-thirds of the loss function of a
-  sparse model is devoted to babysitting a matrix that is one part in
-  44,538 of the parameters.</strong> That is the real cost of conditional
+  <p>Which should tell you something. <strong>Two of the three terms in a sparse
+  model's loss exist to babysit a matrix that is one part in roughly 44,500 of the
+  parameters.</strong> That is the real cost of conditional
   computation, and it is not the one the headline numbers advertise.</p>
 
   <h2 id="free">Deleting the loss entirely</h2>
@@ -430,7 +428,7 @@
       <tr><td>Switch auxiliary loss</td><td>In the loss, via <code>f<sub>i</sub>&middot;P<sub>i</sub></code></td><td>Competes with cross-entropy for gradient</td><td class="num">&alpha; = 10<sup>&minus;2</sup></td></tr>
       <tr><td>Router z-loss</td><td>In the loss, on logit magnitude</td><td>Competes, but small</td><td class="num">c<sub>z</sub> = 0.001</td></tr>
       <tr><td>DeepSeek-V3 bias</td><td>Outside the graph, on selection only</td><td><strong>None</strong></td><td class="num">&gamma; = 0.001</td></tr>
-      <tr><td>DeepSeek-V3 sequence-wise loss</td><td>In the loss, as a backstop</td><td>Deliberately tiny</td><td class="num">&alpha; &mdash; <span style="color:var(--ink-faint)">not reported</span></td></tr>
+      <tr><td>DeepSeek-V3 sequence-wise loss</td><td>In the loss, as a backstop</td><td>Deliberately tiny</td><td class="num">&alpha; = 0.0001</td></tr>
     </tbody>
   </table>
   </div>
@@ -441,10 +439,11 @@
   <em>&ldquo;mainly relies on the auxiliary-loss-free strategy for load balance,&rdquo;</em>
   but <em>&ldquo;to prevent extreme imbalance within any single sequence, we also
   employ a complementary sequence-wise balance loss.&rdquo;</em> A Switch-shaped term
-  survives, scoped per <em>sequence</em> rather than per batch. The paper says its
-  &alpha; <em>&ldquo;will be assigned an extremely small value&rdquo;</em> and never
-  states the number &mdash; so this book won't either. It's a seatbelt, not a steering
-  wheel. And &gamma; itself is
+  survives, scoped per <em>sequence</em> rather than per batch. &sect;2.1.2 describes
+  its &alpha; only as <em>&ldquo;an extremely small value&rdquo;</em>, but &sect;4.2
+  gives the number: <strong>&alpha; = 0.0001</strong>, <em>&ldquo;just to avoid extreme
+  imbalance within any single sequence&rdquo;</em> &mdash; a hundred times smaller than
+  Switch's. A seatbelt, not a steering wheel. And &gamma; itself is
   set to 0.001 for the first 14.3T tokens of training and then <strong>0</strong> for
   the remainder: once the experts have found their balance, the thermostat is switched
   off entirely.</p>
@@ -534,8 +533,7 @@
       <a href="https://arxiv.org/abs/2412.19437"><em>DeepSeek-V3 Technical
       Report</em></a>. &mdash; &sect;2.1.2 auxiliary-loss-free balancing; sigmoid
       affinity; &gamma; = 0.001 for the first 14.3T tokens then 0; complementary
-      sequence-wise balance loss, whose &alpha; the paper describes only as
-      &ldquo;extremely small&rdquo; without giving a value.</li>
+      sequence-wise balance loss with &alpha; = 0.0001 (&sect;4.2).</li>
     <li>Dai et al. (2024).
       <a href="https://arxiv.org/abs/2401.06066"><em>DeepSeekMoE</em></a>. &mdash;
       shared-expert isolation and fine-grained segmentation, covered properly in
