@@ -405,6 +405,33 @@ footer.site { border-top: 1px solid var(--rule); margin-top: 4rem; padding: 2rem
   font-size: 0.74rem; color: var(--ink-faint); line-height: 1.5;
 }
 
+/* Notation reference — folded away, but one click from anywhere in the book.
+   Symbols drift across papers; a reader arriving at chapter 5 cold needs this. */
+.booknav details.notation {
+  border-top: 1px solid var(--rule); padding: 0.9rem 0 1.2rem; margin-bottom: 0.4rem;
+}
+.booknav details.notation > summary {
+  display: block; cursor: pointer; list-style: none;
+  font-size: 0.66rem; font-weight: 700; letter-spacing: 0.13em;
+  text-transform: uppercase; color: var(--router); padding: 0;
+}
+.booknav details.notation > summary::-webkit-details-marker { display: none; }
+.booknav details.notation > summary::before { content: "+ "; font-family: var(--mono); }
+.booknav details.notation[open] > summary::before { content: "\2212 "; }
+.booknav details.notation dl {
+  display: grid; grid-template-columns: auto 1fr; gap: 0.24rem 0.6rem;
+  margin: 0.75rem 0 0; font-size: 0.74rem; line-height: 1.35;
+}
+.booknav details.notation dt {
+  font-family: var(--mono); font-weight: 700; color: var(--active); white-space: nowrap;
+}
+.booknav details.notation dd { margin: 0; color: var(--ink-soft); }
+.booknav details.notation .ncaveat {
+  margin: 0.8rem 0 0; font-size: 0.71rem; line-height: 1.45; color: var(--ink-faint);
+}
+.booknav details.notation .ncaveat b { color: var(--ink-soft); }
+@media (max-width: 62rem) { .booknav details.notation { display: none; } }
+
 /* Reading progress — a thin rail that fills as the chapter is consumed. */
 .progressrail {
   position: fixed; top: 0; left: 0; right: 0; height: 2px;

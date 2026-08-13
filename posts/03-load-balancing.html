@@ -44,6 +44,27 @@
         <li><a href="05-the-lineage.html">The lineage</a></li>
         <li><a href="06-systems-reality.html">The systems reality</a></li>
       </ol>
+      <details class="notation">
+        <summary>Notation</summary>
+        <dl>
+          <dt>N</dt><dd>number of experts in a layer</dd>
+          <dt>k</dt><dd>experts activated per token (top-k)</dd>
+          <dt>x</dt><dd>one token's hidden state</dd>
+          <dt>W<sub>g</sub></dt><dd>the router matrix</dd>
+          <dt>G(x)<sub>i</sub>, g<sub>i</sub></dt><dd>gate value for expert i</dd>
+          <dt>E<sub>i</sub></dt><dd>expert i, as a function</dd>
+          <dt>f<sub>i</sub></dt><dd>fraction of tokens <em>dispatched</em> to expert i</dd>
+          <dt>P<sub>i</sub></dt><dd>fraction of router <em>probability</em> to expert i</dd>
+          <dt>&alpha;</dt><dd>auxiliary-loss coefficient</dd>
+          <dt>C</dt><dd>expert capacity, in token slots</dd>
+          <dt>d<sub>model</sub></dt><dd>model dimension (4096 in Mixtral)</dd>
+          <dt>d<sub>ff</sub></dt><dd>FFN hidden dimension (14336)</dd>
+        </dl>
+        <p class="ncaveat">Careful with <b>E</b>: this book uses it for an expert
+        (<b>E<sub>i</sub></b>), but GShard's papers use <b>E</b> for the expert
+        <em>count</em> — where this book writes <b>N</b>. Quoted formulas keep their
+        paper's notation.</p>
+      </details>
       <p class="navfoot">Every formula copied from the primary paper. Every number
       cited. Blank cells where a paper doesn't report a figure.</p>
     </details>
