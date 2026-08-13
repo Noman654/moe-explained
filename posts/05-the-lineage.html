@@ -40,9 +40,10 @@
             <li><a href="#2024">2024 &mdash; Mixtral opens the door</a></li>
             <li><a href="#fine">The combinatorial argument</a></li>
             <li><a href="#shared">Shared experts</a></li>
+            <li><a href="#table">The whole family</a></li>
           </ul>
         </li>
-        <li><a class="soon" href="06-systems-reality.html">The systems reality</a></li>
+        <li><a href="06-systems-reality.html">The systems reality</a></li>
       </ol>
       <p class="navfoot">Every formula copied from the primary paper. Every number
       cited. Blank cells where a paper doesn't report a figure.</p>
@@ -329,6 +330,84 @@
     so adding <span class="v">b</span><sub><span class="v">i</span></sub> doesn't
     implicitly rescale the others the way it would inside a softmax.</p>
   </div>
+
+  <h2 id="table">The whole family on one page</h2>
+
+  <p>If you keep one thing from this book, make it this table. Every row is a design
+  point; every column is a decision the previous four chapters taught you to read.</p>
+
+  <div class="tablewrap">
+  <table>
+    <thead><tr>
+      <th>Paper</th><th class="num">Year</th><th>Routing rule</th><th class="num">k</th>
+      <th>Softmax vs top-k</th><th>Balancing</th><th>Capacity</th><th>Shared experts</th>
+    </tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>Shazeer</strong></td><td class="num">2017</td>
+        <td>Noisy top-k, tokens choose</td><td class="num">4</td>
+        <td>mask to &minus;&infin;, then softmax</td>
+        <td>importance + load, both CV<sup>2</sup></td>
+        <td>&mdash;</td><td>no</td>
+      </tr>
+      <tr>
+        <td><strong>GShard</strong></td><td class="num">2020</td>
+        <td>Top-2, 2nd expert stochastic</td><td class="num">2</td>
+        <td>explicit renormalise</td>
+        <td>aux loss, mean over experts</td>
+        <td>per local group, 2N/(G&middot;E)</td><td>no</td>
+      </tr>
+      <tr>
+        <td><strong>Switch</strong></td><td class="num">2021</td>
+        <td>Top-1</td><td class="num">1</td>
+        <td><strong>softmax over all N first</strong></td>
+        <td>&alpha;&middot;N&middot;&Sigma;f<sub>i</sub>P<sub>i</sub>, &alpha;=10<sup>&minus;2</sup></td>
+        <td>capacity factor 1.0&ndash;2.0</td><td>no</td>
+      </tr>
+      <tr>
+        <td><strong>ST-MoE</strong></td><td class="num">2022</td>
+        <td>as Switch</td><td class="num">2</td>
+        <td>as Switch</td>
+        <td>aux loss <strong>+ router z-loss</strong>, c<sub>z</sub>=0.001</td>
+        <td>as Switch</td><td>no</td>
+      </tr>
+      <tr>
+        <td><strong>Expert Choice</strong></td><td class="num">2022</td>
+        <td><strong>experts choose tokens</strong></td><td class="num">variable</td>
+        <td>softmax, then top-k on <em>S</em><sup>&#8868;</sup></td>
+        <td><strong>none needed</strong> &mdash; balanced by construction</td>
+        <td>fixed bucket k = n&middot;c/e</td><td>no</td>
+      </tr>
+      <tr>
+        <td><strong>Mixtral</strong></td><td class="num">2024</td>
+        <td>Top-2, tokens choose</td><td class="num">2</td>
+        <td>top-k first, then softmax</td>
+        <td>not detailed in the paper</td>
+        <td>not detailed in the paper</td><td>no</td>
+      </tr>
+      <tr>
+        <td><strong>DeepSeekMoE</strong></td><td class="num">2024</td>
+        <td>Fine-grained, tokens choose</td><td class="num">6 of 64</td>
+        <td>softmax over selected</td>
+        <td>expert- + device-level aux losses</td>
+        <td>&mdash;</td><td><strong>2</strong></td>
+      </tr>
+      <tr>
+        <td><strong>DeepSeek-V3</strong></td><td class="num">2024</td>
+        <td>Sigmoid affinity + bias, node-limited M=4</td><td class="num">8 of 256</td>
+        <td>select on s+b, normalise s</td>
+        <td><strong>bias outside the gradient</strong> + tiny sequence-wise loss</td>
+        <td><strong>none &mdash; drops no tokens</strong></td><td><strong>1</strong></td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p style="font-family:var(--sans);font-size:0.8rem;color:var(--ink-faint)">
+  Blank cells are papers that don't report the quantity, not defaults. Mixtral in
+  particular describes its architecture and results but not its balancing or capacity
+  configuration &mdash; so those stay empty rather than being filled in from what a
+  Mistral model &ldquo;probably&rdquo; does.</p>
 
   <div class="problem">
     <h4>Work it yourself</h4>

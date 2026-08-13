@@ -41,8 +41,8 @@
             <li><a href="#invert">Inverting the problem</a></li>
           </ul>
         </li>
-        <li><a class="soon" href="05-the-lineage.html">The lineage</a></li>
-        <li><a class="soon" href="06-systems-reality.html">The systems reality</a></li>
+        <li><a href="05-the-lineage.html">The lineage</a></li>
+        <li><a href="06-systems-reality.html">The systems reality</a></li>
       </ol>
       <p class="navfoot">Every formula copied from the primary paper. Every number
       cited. Blank cells where a paper doesn't report a figure.</p>
@@ -238,6 +238,34 @@
     <p>Second, drops were rare throughout: <em>&ldquo;typically &lt;1%&rdquo;</em> of
     tokens, with no observed dependency on the number of experts. The capacity-factor
     result is mostly about wasted compute and communication, not about drop rate.</p>
+  </div>
+
+  <div class="tryit">
+    <h4>Try it &mdash; find the knee yourself</h4>
+    <p style="font-family:var(--sans);font-size:0.86rem;color:var(--ink-soft);margin-bottom:1rem">
+    One group of <strong>1024 tokens</strong>, 8 experts, with a realistically skewed
+    router. Move the capacity factor and watch the two costs trade against each other.
+    This is exact arithmetic on the numbers shown &mdash; no simulation.</p>
+
+    <div class="ctl">
+      <label for="cf">Capacity factor</label>
+      <input type="range" id="cf" min="50" max="300" value="100" step="5">
+      <output id="cfo">1.00</output>
+    </div>
+    <div class="ctl">
+      <label for="sk">Router skew</label>
+      <input type="range" id="sk" min="0" max="100" value="60">
+      <output id="sko">moderate</output>
+    </div>
+
+    <svg id="capchart" viewBox="0 0 700 180" role="img" aria-label="Per-expert token load against the capacity line, showing which experts overflow and how many seats sit unused." style="width:100%;height:auto;margin:1rem 0"></svg>
+
+    <div class="stats" style="margin:0">
+      <div class="stat"><div class="n" id="cDrop">&mdash;</div><div class="l">tokens dropped (skip the FFN)</div></div>
+      <div class="stat"><div class="n" id="cWaste">&mdash;</div><div class="l">seats allocated but unused</div></div>
+      <div class="stat"><div class="n" id="cMem">&mdash;</div><div class="l">buffer vs. the fair share</div></div>
+    </div>
+    <p id="cNote" style="font-family:var(--sans);font-size:0.82rem;color:var(--ink-soft);margin:0.9rem 0 0"></p>
   </div>
 
   <h2 id="rescue">The obvious fix, which bought nothing</h2>
@@ -656,6 +684,131 @@
       }
     }
   });
+})();
+
+/* ====== INTERACTIVE — capacity factor, dropped tokens, wasted seats ======= */
+(function () {
+  var SVG = 'http://www.w3.org/2000/svg';
+  var T = 1024, N = 8;
+  var chart = document.getElementById('capchart');
+  var cf = document.getElementById('cf'), sk = document.getElementById('sk');
+
+  // A skew parameter reshapes the load from perfectly flat to badly collapsed.
+  // Geometric decay keeps it monotone and always sums to exactly T.
+  function loads(skew) {
+    var r = 1 - skew * 0.007;            // skew 0 -> flat, skew 100 -> steep
+    var w = [], s = 0;
+    for (var i = 0; i < N; i++) { var v = Math.pow(r, i); w.push(v); s += v; }
+    var out = w.map(function (v) { return Math.round(v / s * T); });
+    out[0] += T - out.reduce(function (a, b) { return a + b; }, 0);   // fix rounding
+    return out;
+  }
+
+  var bars = [], caps, capLine, capLbl;
+  (function build() {
+    for (var i = 0; i < N; i++) {
+      var x = 40 + i * 80;
+      var r = document.createElementNS(SVG, 'rect');
+      r.setAttribute('x', x); r.setAttribute('width', 56); r.setAttribute('rx', 3);
+      chart.appendChild(r);
+      var over = document.createElementNS(SVG, 'rect');
+      over.setAttribute('x', x); over.setAttribute('width', 56); over.setAttribute('rx', 3);
+      over.setAttribute('fill', 'var(--danger)');
+      chart.appendChild(over);
+      var t = document.createElementNS(SVG, 'text');
+      t.setAttribute('x', x + 28); t.setAttribute('y', 158);
+      t.setAttribute('text-anchor', 'middle'); t.setAttribute('font-family', 'var(--sans)');
+      t.setAttribute('font-size', '10'); t.setAttribute('fill', 'var(--ink-faint)');
+      t.textContent = 'E' + (i + 1);
+      chart.appendChild(t);
+      var v = document.createElementNS(SVG, 'text');
+      v.setAttribute('x', x + 28); v.setAttribute('text-anchor', 'middle');
+      v.setAttribute('font-family', 'var(--mono)'); v.setAttribute('font-size', '9.5');
+      chart.appendChild(v);
+      bars.push({ r: r, over: over, v: v });
+    }
+    var ax = document.createElementNS(SVG, 'line');
+    ax.setAttribute('x1', 30); ax.setAttribute('y1', 140);
+    ax.setAttribute('x2', 690); ax.setAttribute('y2', 140);
+    ax.setAttribute('stroke', 'var(--rule-strong)');
+    chart.appendChild(ax);
+    capLine = document.createElementNS(SVG, 'line');
+    capLine.setAttribute('x1', 30); capLine.setAttribute('x2', 690);
+    capLine.setAttribute('stroke', 'var(--router)');
+    capLine.setAttribute('stroke-width', '2');
+    capLine.setAttribute('stroke-dasharray', '5 3');
+    chart.appendChild(capLine);
+    capLbl = document.createElementNS(SVG, 'text');
+    capLbl.setAttribute('x', 34); capLbl.setAttribute('font-family', 'var(--sans)');
+    capLbl.setAttribute('font-size', '10'); capLbl.setAttribute('font-weight', '700');
+    capLbl.setAttribute('fill', 'var(--router)');
+    chart.appendChild(capLbl);
+  })();
+
+  function render() {
+    var factor = +cf.value / 100, skew = +sk.value;
+    var L = loads(skew);
+    var cap = Math.round(T / N * factor);
+    var MAXV = 420, H = 120;
+    var y = function (v) { return 140 - Math.min(v, MAXV) / MAXV * H; };
+
+    var dropped = 0, wasted = 0;
+    L.forEach(function (v, i) {
+      var served = Math.min(v, cap);
+      dropped += Math.max(0, v - cap);
+      wasted += Math.max(0, cap - v);
+      var b = bars[i];
+      b.r.setAttribute('y', y(served)); b.r.setAttribute('height', 140 - y(served));
+      b.r.setAttribute('fill', 'var(--active)');
+      var ov = Math.max(0, v - cap);
+      b.over.setAttribute('y', y(v)); b.over.setAttribute('height', Math.max(0, y(served) - y(v)));
+      b.over.style.display = ov > 0 ? '' : 'none';
+      b.v.setAttribute('y', y(v) - 5);
+      b.v.setAttribute('fill', ov > 0 ? 'var(--danger)' : 'var(--ink-faint)');
+      b.v.textContent = v;
+    });
+
+    capLine.setAttribute('y1', y(cap)); capLine.setAttribute('y2', y(cap));
+    capLbl.setAttribute('y', y(cap) - 5);
+    capLbl.textContent = 'capacity = ' + cap + ' seats';
+
+    document.getElementById('cfo').textContent = factor.toFixed(2);
+    document.getElementById('sko').textContent =
+      skew < 20 ? 'balanced' : skew < 50 ? 'mild' : skew < 75 ? 'moderate' : 'collapsing';
+    document.getElementById('cDrop').textContent =
+      dropped + '  (' + (dropped / T * 100).toFixed(1) + '%)';
+    document.getElementById('cWaste').textContent =
+      wasted + '  (' + (wasted / (cap * N) * 100).toFixed(0) + '% of buffer)';
+    document.getElementById('cMem').textContent = factor.toFixed(2) + '×';
+
+    var note;
+    if (Math.abs(factor - 1) < 0.001 && dropped > 0) {
+      note = 'Notice dropped (' + dropped + ') and wasted (' + wasted + ') are exactly equal. ' +
+             'At capacity factor 1.0 the total seats equal the total tokens, so every token ' +
+             'that overflows one expert is matched by an empty seat at another. Imbalance ' +
+             'here is purely a redistribution problem — which is why chapter 3 attacks the ' +
+             'router rather than the buffer.';
+    } else if (dropped === 0 && factor > 1.6) {
+      note = 'Zero drops — but you are allocating and shipping ' + wasted +
+             ' empty seats. Switch measured this trade as a net loss: capacity factor 2.0 ' +
+             'took 72.8 hours to a quality threshold that 1.0 reached in 62.8.';
+    } else if (dropped === 0) {
+      note = 'Zero drops at this skew, with little waste. This is the knee — and it is why ' +
+             'the auxiliary loss of chapter 3 is worth its own gradient: a balanced router ' +
+             'lets you run a small capacity factor safely.';
+    } else if (dropped / T > 0.15) {
+      note = 'Over 15% of tokens are skipping the FFN entirely. Note that raising capacity is ' +
+             'not the only lever — the router itself is the cheaper thing to fix.';
+    } else {
+      note = 'Switch reported drop rates "typically <1%" in trained models. If you are above ' +
+             'that, your router is the problem, not your buffer.';
+    }
+    document.getElementById('cNote').textContent = note;
+  }
+
+  cf.addEventListener('input', render);
+  sk.addEventListener('input', render);
+  render();
 })();
 
 /* ========= ANIMATION 2 — the transpose: who picks whom ==================== */

@@ -40,9 +40,9 @@
             <li><a href="#free">Deleting the loss entirely</a></li>
           </ul>
         </li>
-        <li><a class="soon" href="04-capacity-factor.html">Capacity &amp; dropped tokens</a></li>
-        <li><a class="soon" href="05-the-lineage.html">The lineage</a></li>
-        <li><a class="soon" href="06-systems-reality.html">The systems reality</a></li>
+        <li><a href="04-capacity-factor.html">Capacity &amp; dropped tokens</a></li>
+        <li><a href="05-the-lineage.html">The lineage</a></li>
+        <li><a href="06-systems-reality.html">The systems reality</a></li>
       </ol>
       <p class="navfoot">Every formula copied from the primary paper. Every number
       cited. Blank cells where a paper doesn't report a figure.</p>
@@ -234,6 +234,40 @@
     minimum value <strong>exactly 1, whatever <span class="v">N</span> is</strong>
     &mdash; so <span class="hl-router">&alpha;</span> means the same thing whether you
     have 8 experts or 2048, and you don't have to retune it when you scale.</p>
+  </div>
+
+  <div class="tryit">
+    <h4>Try it &mdash; feel the correction</h4>
+    <p style="font-family:var(--sans);font-size:0.86rem;color:var(--ink-soft);margin-bottom:1rem">
+    Set the number of experts, the balance coefficient, and how badly the router has
+    collapsed. Bars are measured load; arrows are the resulting
+    <code>&part;loss/&part;P<sub>i</sub> = &alpha;&middot;N&middot;f<sub>i</sub></code>.
+    Exact arithmetic, not a simulation.</p>
+
+    <div class="ctl">
+      <label for="bn">Experts (<span class="v">N</span>)</label>
+      <input type="range" id="bn" min="4" max="16" value="8">
+      <output id="bno">8</output>
+    </div>
+    <div class="ctl">
+      <label for="ba">Coefficient &alpha;</label>
+      <input type="range" id="ba" min="0" max="40" value="20">
+      <output id="bao">1e-2</output>
+    </div>
+    <div class="ctl">
+      <label for="bs">Collapse severity</label>
+      <input type="range" id="bs" min="0" max="100" value="70">
+      <output id="bso">severe</output>
+    </div>
+
+    <svg id="balchart" viewBox="0 0 700 210" role="img" aria-label="Measured expert load with the corrective gradient beneath each expert, sized in proportion to that expert's share of the batch." style="width:100%;height:auto;margin:1rem 0"></svg>
+
+    <div class="stats" style="margin:0">
+      <div class="stat"><div class="n" id="bRatio">&mdash;</div><div class="l">push-down ratio, busiest ÷ quietest</div></div>
+      <div class="stat"><div class="n" id="bLoss">&mdash;</div><div class="l">auxiliary loss value</div></div>
+      <div class="stat"><div class="n" id="bFloor">&mdash;</div><div class="l">its value at perfect balance</div></div>
+    </div>
+    <p id="bNote" style="font-family:var(--sans);font-size:0.82rem;color:var(--ink-soft);margin:0.9rem 0 0"></p>
   </div>
 
   <h2 id="zloss">The other loss: bfloat16 is out to get you</h2>
@@ -628,6 +662,108 @@
       cv.setAttribute('fill', s >= 3 ? 'var(--danger)' : 'var(--ink-soft)');
     }
   });
+})();
+
+/* ====== INTERACTIVE — set N, alpha and the collapse; see the correction === */
+(function () {
+  var SVG = 'http://www.w3.org/2000/svg';
+  var chart = document.getElementById('balchart');
+  var bn = document.getElementById('bn'), ba = document.getElementById('ba'),
+      bs = document.getElementById('bs');
+  var pool = [];
+
+  function alphaOf(v) { return Math.pow(10, -4 + v / 40 * 3); }  // 1e-4 .. 1e-1
+
+  function loads(N, severity) {
+    var r = 1 - severity * 0.009, w = [], s = 0;
+    for (var i = 0; i < N; i++) { var x = Math.pow(r, i); w.push(x); s += x; }
+    return w.map(function (x) { return x / s; });
+  }
+
+  function ensure(N) {
+    while (pool.length < N) {
+      var g = {};
+      g.bar = document.createElementNS(SVG, 'rect');
+      g.bar.setAttribute('rx', 3); chart.appendChild(g.bar);
+      g.pct = document.createElementNS(SVG, 'text');
+      g.pct.setAttribute('text-anchor', 'middle');
+      g.pct.setAttribute('font-family', 'var(--mono)');
+      g.pct.setAttribute('font-size', '9'); chart.appendChild(g.pct);
+      g.arr = document.createElementNS(SVG, 'line');
+      g.arr.setAttribute('stroke', 'var(--danger)');
+      g.arr.setAttribute('stroke-width', '3'); chart.appendChild(g.arr);
+      g.lab = document.createElementNS(SVG, 'text');
+      g.lab.setAttribute('text-anchor', 'middle');
+      g.lab.setAttribute('font-family', 'var(--sans)');
+      g.lab.setAttribute('font-size', '9');
+      g.lab.setAttribute('fill', 'var(--ink-faint)'); chart.appendChild(g.lab);
+      pool.push(g);
+    }
+    pool.forEach(function (g, i) {
+      var on = i < N ? '' : 'none';
+      g.bar.style.display = on; g.pct.style.display = on;
+      g.arr.style.display = on; g.lab.style.display = on;
+    });
+  }
+
+  function render() {
+    var N = +bn.value, alpha = alphaOf(+ba.value), sev = +bs.value;
+    var f = loads(N, sev);
+    ensure(N);
+
+    var W = 660, slot = W / N, bw = Math.min(46, slot - 6), BASE = 110, MAXH = 86;
+    var maxF = Math.max.apply(null, f);
+    var grads = f.map(function (v) { return alpha * N * v; });
+    var maxG = Math.max.apply(null, grads) || 1;
+
+    f.forEach(function (v, i) {
+      var x = 26 + i * slot + (slot - bw) / 2, h = v / Math.max(maxF, 0.2) * MAXH;
+      var g = pool[i];
+      g.bar.setAttribute('x', x); g.bar.setAttribute('width', bw);
+      g.bar.setAttribute('y', BASE - h); g.bar.setAttribute('height', h);
+      g.bar.setAttribute('fill', v > 1.8 / N ? 'var(--danger)' : 'var(--router)');
+      g.pct.setAttribute('x', x + bw / 2); g.pct.setAttribute('y', BASE - h - 4);
+      g.pct.setAttribute('fill', v > 1.8 / N ? 'var(--danger)' : 'var(--ink-faint)');
+      g.pct.textContent = (v * 100).toFixed(0) + '%';
+      var alen = grads[i] / maxG * 56;
+      g.arr.setAttribute('x1', x + bw / 2); g.arr.setAttribute('y1', BASE + 12);
+      g.arr.setAttribute('x2', x + bw / 2); g.arr.setAttribute('y2', BASE + 12 + alen);
+      g.lab.setAttribute('x', x + bw / 2); g.lab.setAttribute('y', 200);
+      g.lab.textContent = 'E' + (i + 1);
+    });
+
+    var ratio = f[0] / f[N - 1];
+    var lossVal = alpha * N * f.reduce(function (a, v) { return a + v * v; }, 0);
+    document.getElementById('bno').textContent = N;
+    document.getElementById('bao').textContent = alpha.toExponential(0).replace('e-', 'e-');
+    document.getElementById('bso').textContent =
+      sev < 15 ? 'balanced' : sev < 45 ? 'mild' : sev < 75 ? 'moderate' : 'severe';
+    document.getElementById('bRatio').textContent = ratio.toFixed(1) + '×';
+    document.getElementById('bLoss').textContent = lossVal.toFixed(4);
+    document.getElementById('bFloor').textContent = alpha.toExponential(0);
+
+    var note;
+    if (sev < 15) {
+      note = 'At perfect balance the loss bottoms out at exactly α — that is what the N out ' +
+             'front is for, and why α means the same thing at 8 experts as at 2048.';
+    } else if (alpha < 0.002) {
+      note = 'α this small barely registers against the cross-entropy gradient. The router ' +
+             'will collapse anyway — this is the failure mode the coefficient sweep in the ' +
+             'Switch paper was searching for.';
+    } else if (alpha > 0.05) {
+      note = 'α this large starts competing with the task objective itself. You will get a ' +
+             'beautifully flat histogram and a measurably worse model — the compromise ' +
+             'DeepSeek-V3 sidesteps by moving balance out of the gradient entirely.';
+    } else {
+      note = 'Notice the arrows are proportional to the bars: the correction is always sized ' +
+             'to the offence, with no special cases. Switch settled on α = 1e-2 after ' +
+             'sweeping 1e-1 down to 1e-5.';
+    }
+    document.getElementById('bNote').textContent = note;
+  }
+
+  [bn, ba, bs].forEach(function (el) { el.addEventListener('input', render); });
+  render();
 })();
 
 /* ============ ANIMATION 2 — where the gradient actually points ============ */
