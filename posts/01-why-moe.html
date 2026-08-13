@@ -316,8 +316,12 @@
   <p>The idea is old &mdash; Jacobs and Hinton were writing about mixtures of local
   experts in 1991 &mdash; but it only became load-bearing for language models when
   <a href="https://arxiv.org/abs/1701.06538">Shazeer et al. (2017)</a> bolted a
-  sparsely-gated MoE layer between LSTM layers and trained a 137-billion-parameter
-  model in an era when &ldquo;large&rdquo; meant a few hundred million.</p>
+  sparsely-gated MoE layer between LSTM layers and built one containing
+  <strong>up to 137 billion parameters in the MoE layer alone</strong>, in an era
+  when &ldquo;large&rdquo; meant a few hundred million. (That figure is the layer,
+  not the whole model &mdash; and as <a href="05-the-lineage.html">chapter 5</a>
+  covers, it was also the configuration where quality started going
+  <em>backwards</em>.)</p>
 
   <h2 id="layer">What an MoE layer actually is</h2>
 
@@ -576,7 +580,7 @@ active <span class="c-key">=</span> layers <span class="c-key">*</span> (top_k  
       <th class="num">Ratio</th><th class="num">Experts</th><th class="num">Top-k</th>
     </tr></thead>
     <tbody>
-      <tr><td>Shazeer et al. (2017)</td><td class="num">137B</td><td class="num">&mdash;</td><td class="num">&mdash;</td><td class="num">&mdash;</td><td class="num">&mdash;</td></tr>
+      <tr><td>Shazeer et al. (2017) <span style="color:var(--ink-faint)">&middot; MoE layer only</span></td><td class="num">137B</td><td class="num">&mdash;</td><td class="num">&mdash;</td><td class="num">131,072</td><td class="num">4</td></tr>
       <tr><td>Switch-XXL</td><td class="num">395B</td><td class="num">&mdash;</td><td class="num">&mdash;</td><td class="num">64</td><td class="num">1</td></tr>
       <tr><td>Switch-C</td><td class="num">1571B</td><td class="num">&mdash;</td><td class="num">&mdash;</td><td class="num">2048</td><td class="num">1</td></tr>
       <tr><td><strong>Mixtral 8&times;7B</strong></td><td class="num">46.7B</td><td class="num">12.9B</td><td class="num">3.6&times;</td><td class="num">8</td><td class="num">2</td></tr>
@@ -588,8 +592,9 @@ active <span class="c-key">=</span> layers <span class="c-key">*</span> (top_k  
   <p style="font-family:var(--sans);font-size:0.8rem;color:var(--ink-faint)">
   Dashes are honest. The Switch and Shazeer papers report total parameters and expert
   counts but no directly comparable &ldquo;active parameters per token&rdquo; figure,
-  so this book won't invent one &mdash; and the Shazeer model's expert count varied
-  across configurations, so it stays blank rather than approximate.</p>
+  so this book won't invent one. Shazeer's 137B is the size of the <em>MoE layer</em>,
+  not of a whole model, and its top-k was 4 &mdash; the large configurations were
+  <em>hierarchical</em> (a gate over gates), not a flat top-k over 131,072 experts.</p>
 
   <div class="rung research">
     <span class="tag">Research note</span>

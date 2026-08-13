@@ -409,6 +409,22 @@
     </details>
   </div>
 
+  <div class="rung gotcha">
+    <span class="tag">And then the frontier walked away from the problem</span>
+    <p>One caveat on everything above, and it is a big one: <strong>DeepSeek-V3 has no
+    capacity factor and drops no tokens</strong>, in training or inference. There is no
+    fixed buffer to overflow.</p>
+    <p>It gets there by pairing the bias-based balancing of
+    <a href="03-load-balancing.html#free">chapter 3</a> with, at serving time,
+    <em>redundant experts</em> &mdash; duplicating high-load experts and rebalancing
+    the duplicates roughly every ten minutes. Balance good enough to make buffers
+    unnecessary, plus operational slack where balance still fails.</p>
+    <p>So read this chapter as describing the <strong>GShard&ndash;Switch lineage</strong>,
+    which is most of what's deployed and nearly all of what's written about. It is not
+    a universal law of Mixture-of-Experts, and a 2026 reader should know which
+    generation they're looking at.</p>
+  </div>
+
   <div class="takeaway">
     <h4>What you can now do</h4>
     <ul>
@@ -422,6 +438,7 @@
         away.</li>
       <li>Avoid the trap of comparing "capacity factor" across papers that define it
         differently.</li>
+      <li>Say which generation of MoE actually has a capacity factor at all.</li>
     </ul>
   </div>
 

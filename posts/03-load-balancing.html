@@ -375,14 +375,21 @@
       <tr><td>Switch auxiliary loss</td><td>In the loss, via <code>f<sub>i</sub>&middot;P<sub>i</sub></code></td><td>Competes with cross-entropy for gradient</td><td class="num">&alpha; = 10<sup>&minus;2</sup></td></tr>
       <tr><td>Router z-loss</td><td>In the loss, on logit magnitude</td><td>Competes, but small</td><td class="num">c<sub>z</sub> = 0.001</td></tr>
       <tr><td>DeepSeek-V3 bias</td><td>Outside the graph, on selection only</td><td><strong>None</strong></td><td class="num">&gamma; = 0.001</td></tr>
-      <tr><td>DeepSeek-V3 sequence-wise loss</td><td>In the loss, as a backstop</td><td>Deliberately tiny</td><td class="num">&alpha; = 0.0001</td></tr>
+      <tr><td>DeepSeek-V3 sequence-wise loss</td><td>In the loss, as a backstop</td><td>Deliberately tiny</td><td class="num">&alpha; &mdash; <span style="color:var(--ink-faint)">not reported</span></td></tr>
     </tbody>
   </table>
   </div>
 
-  <p>Note that last row: DeepSeek-V3 does keep a complementary sequence-wise
-  auxiliary loss &mdash; but at <strong>&alpha; = 0.0001</strong>, a hundred times
-  smaller than Switch's. It is a seatbelt, not a steering wheel. And &gamma; itself is
+  <p>Note that last row, and note it carefully, because it is the most flattened
+  fact in this whole subject: <strong>DeepSeek-V3 is not actually
+  auxiliary-loss-free.</strong> In the paper's own words, it
+  <em>&ldquo;mainly relies on the auxiliary-loss-free strategy for load balance,&rdquo;</em>
+  but <em>&ldquo;to prevent extreme imbalance within any single sequence, we also
+  employ a complementary sequence-wise balance loss.&rdquo;</em> A Switch-shaped term
+  survives, scoped per <em>sequence</em> rather than per batch. The paper says its
+  &alpha; <em>&ldquo;will be assigned an extremely small value&rdquo;</em> and never
+  states the number &mdash; so this book won't either. It's a seatbelt, not a steering
+  wheel. And &gamma; itself is
   set to 0.001 for the first 14.3T tokens of training and then <strong>0</strong> for
   the remainder: once the experts have found their balance, the thermostat is switched
   off entirely.</p>
@@ -471,7 +478,9 @@
     <li>DeepSeek-AI (2024).
       <a href="https://arxiv.org/abs/2412.19437"><em>DeepSeek-V3 Technical
       Report</em></a>. &mdash; &sect;2.1.2 auxiliary-loss-free balancing; sigmoid
-      affinity; &gamma; = 0.001 then 0; sequence-wise &alpha; = 0.0001.</li>
+      affinity; &gamma; = 0.001 for the first 14.3T tokens then 0; complementary
+      sequence-wise balance loss, whose &alpha; the paper describes only as
+      &ldquo;extremely small&rdquo; without giving a value.</li>
     <li>Dai et al. (2024).
       <a href="https://arxiv.org/abs/2401.06066"><em>DeepSeekMoE</em></a>. &mdash;
       shared-expert isolation and fine-grained segmentation, covered properly in

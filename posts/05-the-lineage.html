@@ -1,33 +1,47 @@
 <!doctype html>
 <html lang="en">
-<!-- generated-stub -->
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>The lineage: Shazeer → Switch → DeepSeek — MoE, Explained ch.5</title>
-<meta name="description" content="Chapter 5 of MoE, Explained. Being written.">
+<title>Seven years of arguing — MoE, Explained ch.5</title>
+<meta name="description" content="Shazeer to DeepSeek-V3 as a chain of reactions: what specifically hurt about each paper that the next one fixed.">
 <link rel="stylesheet" href="../assets/moe.css">
 </head>
 <body>
 
+<div class="progressrail" aria-hidden="true"><span id="prog"></span></div>
+
 <header class="masthead">
   <div class="wrap">
     <a class="brand" href="../index.html">MoE<em>,</em> Explained</a>
-    <nav><a href="../index.html">Contents</a></nav>
+    <nav>
+      <a href="../index.html">Contents</a>
+      <a href="06-systems-reality.html">Next: Systems &rarr;</a>
+    </nav>
   </div>
 </header>
 
 <div class="book">
+
   <nav class="booknav" aria-label="Table of contents">
     <details open>
       <summary>Contents</summary>
       <p class="navtitle">Chapters</p>
       <ol>
         <li><a href="01-why-moe.html">Every token pays full price</a></li>
-        <li><a class="soon" href="02-the-router.html">The router</a></li>
-        <li><a class="soon" href="03-load-balancing.html">Load balancing, and why experts collapse</a></li>
-        <li><a class="soon" href="04-capacity-factor.html">Capacity, and the tokens thrown away</a></li>
-        <li><a aria-current="page" href="05-the-lineage.html">The lineage: Shazeer → Switch → DeepSeek</a></li>
+        <li><a href="02-the-router.html">The router</a></li>
+        <li><a href="03-load-balancing.html">Load balancing &amp; collapse</a></li>
+        <li><a href="04-capacity-factor.html">Capacity &amp; dropped tokens</a></li>
+        <li><a href="05-the-lineage.html" aria-current="page">The lineage</a>
+          <ul class="inchap">
+            <li><a href="#2017">2017 &mdash; the proof of concept</a></li>
+            <li><a href="#2020">2020 &mdash; GShard</a></li>
+            <li><a href="#2021">2021 &mdash; the heresy</a></li>
+            <li><a href="#2024">2024 &mdash; Mixtral opens the door</a></li>
+            <li><a href="#fine">The combinatorial argument</a></li>
+            <li><a href="#shared">Shared experts</a></li>
+          </ul>
+        </li>
         <li><a class="soon" href="06-systems-reality.html">The systems reality</a></li>
       </ol>
       <p class="navfoot">Every formula copied from the primary paper. Every number
@@ -36,47 +50,395 @@
   </nav>
 
   <article>
-    <div class="chapmark"><span class="n">5</span><span class="l">Chapter 5<br>Not written yet</span></div>
-    <h1>The lineage: Shazeer → Switch → DeepSeek</h1>
-    <p class="standfirst">Seven years of the field arguing with itself, as a story. Each paper is a reaction to something specific that hurt about the last one.</p>
 
-    <div class="rung mech">
-      <span class="tag">Being written</span>
-      <p>This chapter isn't finished. The book is written one chapter at a time and
-      reviewed before the next one starts, so what ships is checked rather than
-      merely drafted &mdash; every formula copied from the primary paper, every
-      number verified.</p>
-      <p><a href="01-why-moe.html">Chapter 1 is complete and readable now.</a></p>
+  <div class="chapmark"><span class="n">5</span><span class="l">Chapter five<br>The lineage</span></div>
+  <h1>Seven years of arguing</h1>
+  <p class="standfirst">Every design decision in the previous four chapters was
+  somebody's reaction to something that hurt. Read in order, the papers stop being a
+  reading list and become a conversation &mdash; one with at least one genuine
+  reversal in it.</p>
+  <p class="byline">
+    <span>~19 min</span>
+    <span>Assumes: chapters <a href="01-why-moe.html">1</a>&ndash;<a href="04-capacity-factor.html">4</a></span>
+    <span>One animation, one exercise</span>
+  </p>
+
+  <p>You now know how an MoE layer works. What you don't yet know is why it looks
+  like <em>this</em> &mdash; why top-2 and not top-5, why 256 tiny experts instead of
+  8 large ones, why the balancing loss has the exact shape it does. None of it was
+  designed. All of it was argued into existence, and the arguments are recoverable
+  because each paper states what it disliked about its predecessor.</p>
+
+  <figure class="anim" id="anim1">
+    <svg viewBox="0 0 760 330" role="img" aria-label="A timeline of six Mixture-of-Experts papers from 2017 to 2024, showing for each its year, model scale, expert count, top-k setting, and the specific complaint about its predecessor that motivated it.">
+      <line x1="40" y1="76" x2="720" y2="76" stroke="var(--rule-strong)"/>
+      <g id="t-marks"></g>
+      <g id="t-detail"></g>
+    </svg>
+  </figure>
+
+  <h2 id="2017">2017 &mdash; proving it works at all</h2>
+
+  <p><a href="https://arxiv.org/abs/1701.06538">Shazeer et al.</a> had to establish
+  something nobody had shown: that conditional computation could work at language-model
+  scale. They bolted sparsely-gated MoE layers between LSTM layers and pushed hard,
+  claiming <em>&ldquo;greater than 1000x improvements in model capacity with only
+  minor losses in computational efficiency.&rdquo;</em></p>
+
+  <div class="rung gotcha">
+    <span class="tag">Three things everyone gets wrong about this paper</span>
+    <p><strong>1 &mdash; the 137B is the layer, not the model.</strong> The paper says
+    <em>&ldquo;up to 137 billion parameters in the MoE layer&rdquo;</em>. Quoting it
+    as a 137B model overstates it by a lot.</p>
+    <p><strong>2 &mdash; that configuration got <em>worse</em>.</strong> Verbatim:
+    perplexity <em>&ldquo;improves significantly up to 65536 experts (68 billion
+    parameters), dropping 39% lower than the computationally matched baseline, but
+    degrades at 131072 experts.&rdquo;</em> The famous number is past the peak.</p>
+    <p><strong>3 &mdash; top-k was 4, and the big models were hierarchical.</strong>
+    <em>&ldquo;We use Noisy-Top-K Gating with k=4 for the ordinary MoE layers and k=2
+    at each level of the hierarchical MoE layers.&rdquo;</em> The 131,072-expert model
+    is a gate over gates, not a flat top-k over 131,072 options.</p>
+  </div>
+
+  <p>And buried in section 2.1 is a single sentence that the field would spend four
+  years taking seriously:</p>
+
+  <p class="pull">&ldquo;If we choose <em>k</em>&nbsp;&gt;&nbsp;1, the gate values for
+  the top <em>k</em> experts have nonzero derivatives with respect to the weights of
+  the gating network.&rdquo;</p>
+
+  <p>Note what that sentence actually establishes:
+  <span class="v">k</span>&nbsp;&gt;&nbsp;1 is <strong>sufficient</strong> for a
+  trainable router. It contains no argument that
+  <span class="v">k</span>&nbsp;=&nbsp;1 would fail. But it was read as though it did,
+  and it hardened into received wisdom &mdash; <em>you need at least two experts so
+  the router has something to compare.</em> Hold that thought.</p>
+
+  <h2 id="2020">2020 &mdash; GShard makes it a systems problem</h2>
+
+  <p><a href="https://arxiv.org/abs/2006.16668">GShard</a>'s complaints about 2017 are
+  stated plainly, and they are the two failures you met in chapters 3 and 4. First,
+  imbalance: <em>&ldquo;most tokens seen during training would have been dispatched to
+  a small number of experts&hellip; leaving other experts untrained.&rdquo;</em> Second
+  &mdash; and this is new &mdash; parallelism: <em>&ldquo;a sequential implementation
+  of the gating function would keep most of the computational resources idle.&rdquo;</em></p>
+
+  <p>GShard is where MoE stops being a modelling idea and becomes a
+  <em>distributed-systems</em> idea. Local group dispatching, expert capacity as a
+  first-class quantity, sharding annotations in the compiler &mdash; the entire
+  vocabulary of <a href="04-capacity-factor.html">chapter 4</a> arrives here.</p>
+
+  <div class="stats">
+    <div class="stat"><div class="n">600B</div><div class="l">parameters, 2048 experts per MoE layer</div></div>
+    <div class="stat"><div class="n">22.4</div><div class="l">TPU v3 core-years to train it</div></div>
+    <div class="stat"><div class="n">235.5</div><div class="l">core-years for the best <em>dense</em> model it beat</div></div>
+  </div>
+
+  <p>That comparison is the whole argument for sparsity in one line: the 600B sparse
+  model cost <strong>22.4 core-years</strong>; the best dense Transformer they trained
+  (2.3B parameters) cost <strong>235.5 core-years</strong> &mdash; over ten times more
+  compute for a worse result. And scaling was sublinear: going from 37.5B to 600B, a
+  <strong>16&times;</strong> increase in parameters, raised cost only
+  <strong>3.6&times;</strong>.</p>
+
+  <div class="rung research">
+    <span class="tag">GShard's top-2 isn't always two</span>
+    <p>A detail routinely flattened into &ldquo;GShard = top-2&rdquo;: the second
+    expert is dispatched <em>stochastically</em>. Per the paper, the gate
+    <em>&ldquo;dispatches to the 2nd-best expert with the probability proportional to
+    its weight g<sub>2</sub>&rdquo;</em>. When the runner-up's gate is small, the token
+    often goes to one expert only &mdash; conserving capacity. GShard's average
+    experts-per-token is therefore strictly <em>less</em> than 2.</p>
+  </div>
+
+  <h2 id="2021">2021 &mdash; the heresy that turned out to be right</h2>
+
+  <p><a href="https://arxiv.org/abs/2101.03961">Switch Transformer</a> did the thing
+  everyone knew you couldn't: it routed each token to <strong>exactly one</strong>
+  expert.</p>
+
+  <p>And it named its target precisely. Not GShard &mdash; Shazeer, four years
+  earlier:</p>
+
+  <div class="rung research">
+    <span class="tag">The rebuttal, verbatim</span>
+    <p><em>&ldquo;Shazeer et al. (2017) conjectured that routing to k&nbsp;&gt;&nbsp;1
+    experts was necessary in order to have non-trivial gradients to the routing
+    functions. The authors intuited that learning to route would not work without the
+    ability to compare at least two experts.&rdquo;</em></p>
+    <p>And the refutation, which is one sentence long:</p>
+    <p><em>&ldquo;Note that for both MoE and Switch Routing, the gate value
+    p<sub>i</sub>(x)&hellip; permits differentiability of the router.&rdquo;</em></p>
+  </div>
+
+  <p>You have already derived this. It is <a href="02-the-router.html#gradient">chapter
+  2</a>, in full: the router's gradient does not come from <em>comparing</em> experts.
+  It comes from the gate value <em>multiplying</em> the expert's output. Even with
+  <span class="v">k</span>&nbsp;=&nbsp;1 the layer computes
+  <span class="v">p</span><sub><span class="v">i</span></sub>(<span class="v">x</span>)
+  <span class="op">&middot;</span>
+  <span class="v">E</span><sub><span class="v">i</span></sub>(<span class="v">x</span>),
+  so &part;<span class="v">y</span>/&part;<span class="v">p</span><sub><span class="v">i</span></sub>
+  is non-zero and the gradient flows. The comparison was never doing the work.</p>
+
+  <p class="pull">A four-year-old assumption, resting on one sentence that only ever
+  claimed sufficiency, cost the field a factor of two in expert compute.</p>
+
+  <p>Switch's wins from <span class="v">k</span>&nbsp;=&nbsp;1 are concrete: less
+  router computation, simpler communication, and &mdash; the one people forget &mdash;
+  expert capacity <em>&ldquo;can be at least halved since each token is only being
+  routed to a single expert.&rdquo;</em> Half the buffer, which after
+  <a href="04-capacity-factor.html">chapter 4</a> you know is half the padding shipped
+  over the network.</p>
+
+  <div class="rung gotcha">
+    <span class="tag">The famous number is the weaker model</span>
+    <p>Switch-C is the one everyone quotes: <strong>1571B parameters</strong> (rounded
+    to &ldquo;1.6T&rdquo; in prose), 2048 experts. Switch-XXL is
+    <strong>395B</strong>, 64 experts. Switch-XXL <em>beats</em> Switch-C on negative
+    log perplexity at both 250k and 500k steps (&minus;1.086/&minus;1.008 vs
+    &minus;1.096/&minus;1.043) and on SQuAD (89.6 vs 87.7) &mdash; while having about
+    four times <em>fewer</em> parameters.</p>
+    <p>The paper's explanation: Switch-XXL <em>&ldquo;applies ~10x the FLOPS per token
+    than the Switch-C model, even though it has ~4x less unique parameters.&rdquo;</em>
+    Expert count alone was already hitting diminishing returns in 2021. Which is
+    exactly the gap the next paper attacks &mdash; from the opposite direction.</p>
+  </div>
+
+  <h2 id="2024">2024 &mdash; Mixtral opens the door</h2>
+
+  <p>By 2023 every frontier lab was rumoured to be running MoE and nobody outside one
+  could inspect a serious sparse model. <a href="https://arxiv.org/abs/2401.04088">Mixtral
+  8&times;7B</a>'s contribution isn't an architectural idea &mdash; it's 8 experts,
+  top-2, the GShard shape &mdash; it's that the <strong>weights shipped under Apache
+  2.0</strong>. Everything in <a href="01-why-moe.html">chapter 1</a> is derivable
+  because Mixtral published enough to derive it.</p>
+
+  <div class="rung gotcha">
+    <span class="tag">Mixtral's name is arithmetic bait</span>
+    <p>&ldquo;8&times;7B&rdquo; suggests 56B parameters. The model is
+    <strong>46.7B</strong>. And 2&times;7B suggests 14B active; it's
+    <strong>12.9B</strong>.</p>
+    <p>The reason is the one you computed in chapter 1: <em>only the FFN blocks are
+    replicated</em>. Attention, embeddings and norms are shared across all eight
+    experts, so they're counted once, not eight times. The paper states the
+    architecture and states both numbers, but never spells out the reconciliation
+    &mdash; that arithmetic is inference, which is why chapter 1 walked you through it
+    rather than quoting it.</p>
+  </div>
+
+  <h2 id="fine">The combinatorial argument</h2>
+
+  <p><a href="https://arxiv.org/abs/2401.06066">DeepSeekMoE</a>'s complaint is that
+  conventional MoE suffers from <em>knowledge hybridity</em> &mdash; with only 8 or 16
+  experts, each one is forced to absorb a wide, unrelated mix of things, because there
+  simply aren't enough of them to specialise.</p>
+
+  <p>Their fix is to cut each expert into <span class="v">m</span> smaller ones and
+  activate <span class="v">m</span> times as many. The FLOPs are identical. What
+  changes is how many <em>distinct combinations</em> of experts a token can reach:</p>
+
+  <div class="eq">
+    <span class="label">DeepSeekMoE, &sect;3.1</span>
+    <div class="body">
+      <span class="hl-idle">C(16, 2)</span> <span class="op">=</span> 120
+      &nbsp;&nbsp;&nbsp;<span class="op">&rarr;</span>&nbsp;&nbsp;&nbsp;
+      <span class="hl-active">C(64, 8)</span> <span class="op">=</span> 4,426,165,368
     </div>
+    <div class="say">Sixteen experts choose two gives <b>120</b> possible routings.
+    Split each into four and pick eight of the resulting 64, for identical compute,
+    and you get <b>4.4 billion</b>. That is the argument for fine-grained experts, in
+    one line.</div>
+  </div>
 
-    <h2>What this chapter will cover</h2>
+  <div class="rung research">
+    <span class="tag">How much to believe it</span>
+    <p>Two honest caveats, both from the paper itself.</p>
+    <p>First, <strong>this is an illustration, not DeepSeekMoE's configuration</strong>.
+    The shipped 16B model has 64 routed experts plus 2 shared, activating 6 of 64
+    &mdash; don't report 4.4 billion as a property of a real model.</p>
+    <p>Second, the paper's own framing is modest: fine-grained segmentation
+    <em>&ldquo;substantially enhances the combinatorial flexibility&rdquo;</em>. It
+    never claims the model <em>uses</em> 4.4 billion configurations, and reachable
+    states are not the same as useful capacity &mdash; most combinations are never
+    visited. The real evidence is an ablation: disable the top routed experts and
+    DeepSeekMoE degrades <em>faster</em> than a GShard baseline with 1.5&times; the
+    parameters, indicating <em>less redundancy</em> &mdash; each expert is carrying
+    something the others aren't. That result, not the binomial, is the load-bearing
+    argument.</p>
+  </div>
+
+  <p>And granularity has a floor, which the paper is candid about: they did not go
+  finer at 16B <em>&ldquo;due to the potential reduction in computational efficiency
+  associated with excessively small expert sizes&rdquo;</em>. Tiny matrices make bad
+  GPU kernels. The combinatorial argument is bounded by hardware &mdash; and duly, once
+  the scale justified it, DeepSeek-V3 went to 256 routed experts.</p>
+
+  <h2 id="shared">Shared experts, and the thing they don't have</h2>
+
+  <p>The second idea: alongside the routed experts, a small number of
+  <strong>shared</strong> experts that process <em>every</em> token. The logic follows
+  from the first idea. If you want routed experts to specialise, stop making them
+  relearn the common cases &mdash; grammar, punctuation, whatever every token needs.
+  Hand that to an always-on expert and free the specialists to be specialists.</p>
+
+  <div class="rung gotcha">
+    <span class="tag">Shared experts have no gate</span>
+    <p>In the FFN equation, the shared-expert term is a plain sum
+    &mdash; <span class="big">&Sigma;</span> FFN<sub><span class="v">i</span></sub>(<span class="v">u</span>)
+    &mdash; with <strong>no</strong>
+    <span class="v">g</span><sub><span class="v">i,t</span></sub> factor. Their weight
+    is implicitly 1 and the router never sees them at all.</p>
+    <p>So diagrams drawing shared experts as &ldquo;routed experts that always win&rdquo;
+    are wrong. They aren't in the competition. Architecturally they behave like part of
+    the dense backbone &mdash; which, as <a href="01-why-moe.html#derive">chapter 1's
+    exercise</a> showed, is exactly why they drag DeepSeek-V3's sparsity ratio down.</p>
+  </div>
+
+  <p>DeepSeekMoE credits the mechanism honestly, too: <em>&ldquo;the prototype of
+  shared expert isolation can be credited to Rajbhandari et al.&hellip; The key
+  distinction lies in the fact that they derive this strategy from an engineering
+  perspective, while we approach it from an algorithmic standpoint.&rdquo;</em> The
+  claimed contribution is the rationale, not the trick.</p>
+
+  <p>The results are the strongest case for the whole fine-grained direction:</p>
+
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>Model</th><th class="num">Total</th><th class="num">Active</th><th>Claim</th></tr></thead>
+    <tbody>
+      <tr><td>DeepSeekMoE 2B</td><td class="num">~2B</td><td class="num">~0.3B</td><td>Comparable to GShard 2.9B, which has <strong>1.5&times;</strong> the expert parameters and computation</td></tr>
+      <tr><td>DeepSeekMoE 16B</td><td class="num">16.4B</td><td class="num">~2.8B</td><td>Comparable to LLaMA2 7B with about <strong>40%</strong> of the computation</td></tr>
+      <tr><td>DeepSeekMoE 145B</td><td class="num">145B</td><td class="num">&mdash;</td><td>Comparable to DeepSeek 67B using <strong>28.5%</strong> of computations &mdash; the paper adds its own hedge, &ldquo;maybe even 18.2%&rdquo;</td></tr>
+      <tr><td><strong>DeepSeek-V3</strong></td><td class="num">671B</td><td class="num">37B</td><td>1 shared + 256 routed, top-8, trained on 14.8T tokens for <strong>2.788M H800 GPU-hours</strong></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="rung research">
+    <span class="tag">Two corrections carried forward</span>
+    <p><strong>DeepSeek-V3 is not auxiliary-loss-free.</strong> As
+    <a href="03-load-balancing.html#free">chapter 3</a> noted, it keeps a complementary
+    sequence-wise balance loss. The name describes the primary mechanism, not the
+    absence of all auxiliary losses.</p>
+    <p><strong>V3 changed the gating function.</strong> DeepSeekMoE used a softmax;
+    V3 <em>&ldquo;uses the sigmoid function to compute the affinity scores, and applies
+    a normalization among all selected affinity scores.&rdquo;</em> Carrying the
+    softmax formula forward from DeepSeekMoE into V3 is a genuine error &mdash; and it
+    interacts with the bias trick, because sigmoid scores are independent per expert,
+    so adding <span class="v">b</span><sub><span class="v">i</span></sub> doesn't
+    implicitly rescale the others the way it would inside a softmax.</p>
+  </div>
+
+  <div class="problem">
+    <h4>Work it yourself</h4>
+    <p><strong>(a)</strong> Switch-XXL (395B, 64 experts) outperformed Switch-C (1571B,
+    2048 experts) on both perplexity and SQuAD. Using what you know from chapters 1 and
+    4, give two distinct reasons more experts can make a model <em>worse</em> at fixed
+    training budget.<br>
+    <strong>(b)</strong> DeepSeekMoE splits 16 experts into 64 and activates 8 instead
+    of 2. Verify that the FLOPs are unchanged, and state what quantity actually
+    increased.<br>
+    <strong>(c)</strong> Given the combinatorial argument, why doesn't anyone ship
+    65,536 experts of 1/4096th size each?</p>
+    <details>
+      <summary>Show the answer</summary>
+      <p><strong>(a)</strong> Two reasons, both already in your hands. <em>First,
+      FLOPs per token.</em> The paper's own explanation is that Switch-XXL
+      <em>&ldquo;applies ~10x the FLOPS per token&rdquo;</em> — parameters you never
+      compute with don't help, and chapter 1's distinction between stored and active
+      is exactly this. <em>Second, tokens per expert.</em> At a fixed token budget,
+      2048 experts each see ~1/32nd of what 64 experts see. Each is trained on far
+      less data and stays closer to initialisation — the same starvation dynamic as
+      chapter 3's collapse, arriving through arithmetic rather than through a greedy
+      router.</p>
+      <p><strong>(b)</strong> Each of the 64 experts is 1/4 the size of one of the
+      original 16. Activating 8 of them costs <code>8 × (1/4) = 2</code> expert-units,
+      identical to the original <code>2 × 1 = 2</code>. Total parameters are also
+      unchanged: <code>64 × (1/4) = 16</code>. What increased is neither compute nor
+      capacity but <strong>reachable combinations</strong> — from C(16,2) = 120 to
+      C(64,8) = 4,426,165,368.</p>
+      <p><strong>(c)</strong> Kernel efficiency, and the paper says so: finer
+      segmentation is avoided <em>&ldquo;due to the potential reduction in
+      computational efficiency associated with excessively small expert
+      sizes.&rdquo;</em> A matrix multiply on a tiny matrix wastes most of a GPU —
+      you become launch- and memory-bound rather than compute-bound, and the FLOPs you
+      saved on paper you lose to utilisation. There's also a routing cost: the router
+      matrix is <code>d_model × N</code>, so N = 65,536 makes the router itself
+      enormous, and a top-k over 65,536 candidates per token per layer stops being
+      free. The combinatorial argument is real but it is bounded by hardware — which
+      is why DeepSeek went to 256, not 65,536.</p>
+    </details>
+  </div>
+
+  <div class="takeaway">
+    <h4>What you can now do</h4>
     <ul>
-      <li>2017: a 137B-parameter model in the LSTM era</li>
-      <li>GShard's 600B, and sharding as a first-class concern</li>
-      <li>Switch's top-1 heresy — k=1 was supposed to be impossible</li>
-      <li>Mixtral making MoE mainstream with open weights</li>
-      <li>DeepSeekMoE's two real ideas: fine-grained segmentation and shared experts</li>
-      <li>The combinatorial argument for why 256 small experts beat 8 big ones</li>
+      <li>Name what each paper was reacting to, in its own words.</li>
+      <li>Explain why Switch's top-1 was considered impossible and why it wasn't
+        &mdash; using the gradient argument from chapter 2.</li>
+      <li>Avoid three common misquotes: Shazeer's 137B (layer, not model, and past the
+        peak), Switch's 1.6T (the weaker of its two big models), and Mixtral's
+        &ldquo;8&times;7B&rdquo; (46.7B, not 56B).</li>
+      <li>State the combinatorial argument for fine-grained experts &mdash; and the two
+        reasons to hold it loosely.</li>
+      <li>Explain why shared experts have no gate value.</li>
     </ul>
+  </div>
 
-    <p>Want to be told when it lands? <a href="https://github.com/Noman654/moe-explained">Watch
-    the repo on GitHub</a> &mdash; releases and commits show up there first. Spotted an
-    error in a chapter that <em>is</em> published, or want something covered here?
-    <a href="https://github.com/Noman654/moe-explained/issues/new">Open an issue</a>.</p>
+  <p>What this chain never had to confront, chapter by chapter, is that none of these
+  models fit on one accelerator. Every design decision above was made in the presence
+  of a network &mdash; and the moment experts live on different devices, routing stops
+  being arithmetic and becomes a communication problem.</p>
 
-    <nav class="seriesnav">
-      <a href="04-capacity-factor.html"><span class="k">Previous chapter</span><span class="t"><strong>4 &middot; Capacity, and the tokens thrown away</strong></span></a>
-      <a href="../index.html"><span class="k">All chapters</span>
-      <span class="t"><strong>Contents</strong></span></a>
-    </nav>
+  <nav class="seriesnav">
+    <a href="04-capacity-factor.html">
+      <span class="k">Previous chapter</span>
+      <span class="t"><strong>4 &middot; The seat that wasn't there</strong></span>
+    </a>
+    <a href="06-systems-reality.html">
+      <span class="k">Next chapter</span>
+      <span class="t"><strong>6 &middot; The systems reality</strong> &mdash; where
+      the network becomes the model</span>
+    </a>
+  </nav>
 
-    <section class="comments">
-      <h2>What should this chapter cover?</h2>
-      <p class="lede">It isn't written yet, which makes this the useful moment to
-      speak up. If there's a question you want answered here, or something every
-      other explanation of this topic got wrong, say so and I'll write to it.</p>
-      <div id="giscus-mount"></div>
-    </section>
+  <h3>Sources for this chapter</h3>
+  <ol class="refs">
+    <li>Shazeer et al. (2017). <a href="https://arxiv.org/abs/1701.06538"><em>Outrageously
+      Large Neural Networks</em></a>. &mdash; &sect;2.1 the k&gt;1 sentence; &sect;5.2
+      the 137B MoE layer and the degradation at 131,072 experts; Appendix C, k=4.</li>
+    <li>Lepikhin et al. (2020). <a href="https://arxiv.org/abs/2006.16668"><em>GShard</em></a>.
+      &mdash; 600B / 2048 experts; 22.4 vs 235.5 TPU v3 core-years; stochastic
+      second-expert dispatch.</li>
+    <li>Fedus, Zoph &amp; Shazeer (2021). <a href="https://arxiv.org/abs/2101.03961"><em>Switch
+      Transformers</em></a>. &mdash; &sect;2.1 the rebuttal; Table 9 Switch-C 1571B vs
+      Switch-XXL 395B.</li>
+    <li>Jiang et al. (2024). <a href="https://arxiv.org/abs/2401.04088"><em>Mixtral of
+      Experts</em></a>. &mdash; 47B/13B; Apache 2.0 weights.</li>
+    <li>Dai et al. (2024). <a href="https://arxiv.org/abs/2401.06066"><em>DeepSeekMoE</em></a>.
+      &mdash; &sect;3.1 C(16,2) vs C(64,8); shared expert isolation; the 2B/16B/145B
+      results; the granularity floor.</li>
+    <li>DeepSeek-AI (2024). <a href="https://arxiv.org/abs/2412.19437"><em>DeepSeek-V3</em></a>.
+      &mdash; 671B/37B; 1 shared + 256 routed, top-8; sigmoid affinity; 14.8T tokens;
+      2.788M H800 GPU-hours.</li>
+  </ol>
+
+  <section class="comments">
+    <h2>Comments &amp; corrections</h2>
+    <p class="lede">Threads live in this book's GitHub Discussions. If you think I've
+    mis-told part of this history, that's exactly the kind of thing to say &mdash;
+    lineage is where secondhand claims accumulate.</p>
+    <div class="fixit">
+      <span><b>Found an error?</b>
+      Every formula here was copied from the primary paper and every number verified.
+      If something is wrong, that's a bug &mdash;
+      <a href="https://github.com/Noman654/moe-explained/issues/new?title=Chapter%205%3A%20correction&amp;body=Where%20(section%20or%20equation)%3A%0A%0AWhat%27s%20wrong%3A%0A%0ASource%20that%20says%20otherwise%3A%0A">open
+      an issue</a> and I'll fix it and say so.</span>
+    </div>
+    <div id="giscus-mount"></div>
+  </section>
+
   </article>
 </div>
 
@@ -86,6 +448,115 @@
   <a href="https://github.com/Noman654/moe-explained">Source</a>
 </div></footer>
 
+<script src="../assets/anim.js"></script>
 <script src="../assets/comments.js"></script>
+<script>
+(function () {
+  var bar = document.getElementById('prog'), art = document.querySelector('article');
+  function upd() {
+    var h = art.offsetHeight - window.innerHeight;
+    var p = h > 0 ? (window.scrollY - art.offsetTop) / h : 0;
+    bar.style.width = Math.max(0, Math.min(1, p)) * 100 + '%';
+  }
+  addEventListener('scroll', upd, { passive: true });
+  addEventListener('resize', upd); upd();
+})();
+
+/* ================= ANIMATION — the argument, in order ==================== */
+(function () {
+  var SVG = 'http://www.w3.org/2000/svg';
+  var P = [
+    { yr: '2017', name: 'Shazeer et al.', scale: '137B in the MoE layer',
+      cfg: '131,072 experts (hierarchical) · top-4',
+      react: 'The founding proof: conditional computation works at scale. Claimed >1000x capacity gain for minor efficiency loss.',
+      note: 'But quality peaked at 65,536 experts and degraded beyond it.' },
+    { yr: '2020', name: 'GShard', scale: '600B',
+      cfg: '2048 experts · top-2 (stochastic 2nd)',
+      react: 'Reacting to 2017: "most tokens would have been dispatched to a small number of experts, leaving other experts untrained" — plus idle hardware.',
+      note: '22.4 TPU core-years, against 235.5 for the best dense model it beat.' },
+    { yr: '2021', name: 'Switch', scale: '1571B (Switch-C)',
+      cfg: '2048 experts · top-1',
+      react: 'Reacting to 2017’s conjecture that k>1 was necessary. Refuted in one sentence: the gate value alone makes the router differentiable.',
+      note: 'Its own 395B / 64-expert model beat the 1571B one on perplexity and SQuAD.' },
+    { yr: '2024', name: 'Mixtral 8x7B', scale: '46.7B / 12.9B active',
+      cfg: '8 experts · top-2',
+      react: 'Reacting to the closed-weights era: no architectural novelty, but the first serious MoE anyone could download and measure.',
+      note: 'Apache 2.0 — which is why chapter 1 could derive its spec sheet.' },
+    { yr: '2024', name: 'DeepSeekMoE', scale: '16.4B / 2.8B active',
+      cfg: '64 routed + 2 shared · 6 of 64',
+      react: 'Reacting to coarse experts: "knowledge hybridity" — too few experts means each absorbs an unrelated mix.',
+      note: 'C(16,2)=120 combinations become C(64,8)=4,426,165,368 at identical FLOPs.' },
+    { yr: '2024', name: 'DeepSeek-V3', scale: '671B / 37B active',
+      cfg: '256 routed + 1 shared · top-8',
+      react: 'Reacting to the auxiliary loss itself: balance by a bias outside the gradient graph, so the task objective keeps its full budget.',
+      note: '14.8T tokens, 2.788M H800 GPU-hours, no irrecoverable loss spikes.' }
+  ];
+
+  var marks = document.getElementById('t-marks'), detail = document.getElementById('t-detail');
+  var nodes = [];
+  P.forEach(function (p, i) {
+    var x = 60 + i * 128;
+    var c = document.createElementNS(SVG, 'circle');
+    c.setAttribute('cx', x); c.setAttribute('cy', 76); c.setAttribute('r', 8);
+    c.setAttribute('class', 'node');
+    marks.appendChild(c);
+    var yr = document.createElementNS(SVG, 'text');
+    yr.setAttribute('x', x); yr.setAttribute('y', 50); yr.setAttribute('text-anchor', 'middle');
+    yr.setAttribute('font-family', 'var(--mono)'); yr.setAttribute('font-size', '11');
+    yr.setAttribute('font-weight', '700'); yr.textContent = p.yr;
+    marks.appendChild(yr);
+    var nm = document.createElementNS(SVG, 'text');
+    nm.setAttribute('x', x); nm.setAttribute('y', 102); nm.setAttribute('text-anchor', 'middle');
+    nm.setAttribute('font-family', 'var(--sans)'); nm.setAttribute('font-size', '10.5');
+    nm.textContent = p.name;
+    marks.appendChild(nm);
+    nodes.push({ c: c, yr: yr, nm: nm });
+  });
+
+  function line(y, size, weight, fill) {
+    var t = document.createElementNS(SVG, 'text');
+    t.setAttribute('x', 40); t.setAttribute('y', y);
+    t.setAttribute('font-family', 'var(--sans)'); t.setAttribute('font-size', size);
+    t.setAttribute('font-weight', weight); t.setAttribute('fill', fill);
+    detail.appendChild(t); return t;
+  }
+  var dScale = line(146, '15', '800', 'currentColor');
+  var dCfg   = line(166, '11.5', '400', 'var(--ink-faint)');
+  var dReact = line(196, '12.5', '400', 'currentColor');
+  var dReact2= line(214, '12.5', '400', 'currentColor');
+  var dNote  = line(244, '11.5', '700', 'var(--active)');
+
+  function wrap(t1, t2, s, at) {
+    if (s.length <= at) { t1.textContent = s; t2.textContent = ''; return; }
+    var cut = s.lastIndexOf(' ', at);
+    if (cut < 0) cut = at;
+    t1.textContent = s.slice(0, cut);
+    t2.textContent = s.slice(cut + 1);
+  }
+
+  MoEAnim.create({
+    mount: document.getElementById('anim1'),
+    steps: P.map(function (p) { return { caption: '<b>' + p.name + '</b> — ' + p.react; }; }),
+    interval: 3000,
+    render: function (s) {
+      nodes.forEach(function (n, i) {
+        var on = i === s, seen = i <= s;
+        n.c.setAttribute('fill', on ? 'var(--active)' : (seen ? 'var(--router)' : 'var(--bg-sunken)'));
+        n.c.setAttribute('stroke', on ? 'var(--active)' : 'var(--rule-strong)');
+        n.c.setAttribute('r', on ? 9 : 6);
+        n.yr.setAttribute('fill', on ? 'var(--active)' : 'var(--ink-faint)');
+        n.nm.setAttribute('fill', on ? 'currentColor' : 'var(--ink-faint)');
+        n.nm.setAttribute('font-weight', on ? '700' : '400');
+      });
+      var p = P[s];
+      dScale.textContent = p.scale;
+      dCfg.textContent = p.cfg;
+      wrap(dReact, dReact2, p.react, 96);
+      dNote.textContent = p.note;
+    }
+  });
+})();
+</script>
+
 </body>
 </html>
