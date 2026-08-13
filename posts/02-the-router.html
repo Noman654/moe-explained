@@ -1,33 +1,47 @@
 <!doctype html>
 <html lang="en">
-<!-- generated-stub -->
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>The router — MoE, Explained ch.2</title>
-<meta name="description" content="Chapter 2 of MoE, Explained. Being written.">
+<title>The router's impossible job — MoE, Explained ch.2</title>
+<meta name="description" content="One matrix, one part in forty-five thousand of the model, deciding where every token goes — while staying differentiable enough to train.">
 <link rel="stylesheet" href="../assets/moe.css">
 </head>
 <body>
 
+<div class="progressrail" aria-hidden="true"><span id="prog"></span></div>
+
 <header class="masthead">
   <div class="wrap">
     <a class="brand" href="../index.html">MoE<em>,</em> Explained</a>
-    <nav><a href="../index.html">Contents</a></nav>
+    <nav>
+      <a href="../index.html">Contents</a>
+      <a href="03-load-balancing.html">Next: Load balancing &rarr;</a>
+    </nav>
   </div>
 </header>
 
 <div class="book">
+
   <nav class="booknav" aria-label="Table of contents">
     <details open>
       <summary>Contents</summary>
       <p class="navtitle">Chapters</p>
       <ol>
         <li><a href="01-why-moe.html">Every token pays full price</a></li>
-        <li><a aria-current="page" href="02-the-router.html">The router</a></li>
-        <li><a class="soon" href="03-load-balancing.html">Load balancing, and why experts collapse</a></li>
-        <li><a class="soon" href="04-capacity-factor.html">Capacity, and the tokens thrown away</a></li>
-        <li><a class="soon" href="05-the-lineage.html">The lineage: Shazeer → Switch → DeepSeek</a></li>
+        <li><a href="02-the-router.html" aria-current="page">The router</a>
+          <ul class="inchap">
+            <li><a href="#tiny">One part in 44,538</a></li>
+            <li><a href="#job">The job</a></li>
+            <li><a href="#gradient">Why the gate must multiply</a></li>
+            <li><a href="#ordering">The ordering nobody mentions</a></li>
+            <li><a href="#noisy">Noisy top-k</a></li>
+            <li><a href="#reality">What routing actually looks like</a></li>
+          </ul>
+        </li>
+        <li><a class="soon" href="03-load-balancing.html">Load balancing &amp; collapse</a></li>
+        <li><a class="soon" href="04-capacity-factor.html">Capacity &amp; dropped tokens</a></li>
+        <li><a class="soon" href="05-the-lineage.html">The lineage</a></li>
         <li><a class="soon" href="06-systems-reality.html">The systems reality</a></li>
       </ol>
       <p class="navfoot">Every formula copied from the primary paper. Every number
@@ -36,46 +50,458 @@
   </nav>
 
   <article>
-    <div class="chapmark"><span class="n">2</span><span class="l">Chapter 2<br>Not written yet</span></div>
-    <h1>The router</h1>
-    <p class="standfirst">One small matrix has to make a discrete choice while staying differentiable enough to train. That tension explains almost every design decision in the rest of this book.</p>
 
-    <div class="rung mech">
-      <span class="tag">Being written</span>
-      <p>This chapter isn't finished. The book is written one chapter at a time and
-      reviewed before the next one starts, so what ships is checked rather than
-      merely drafted &mdash; every formula copied from the primary paper, every
-      number verified.</p>
-      <p><a href="01-why-moe.html">Chapter 1 is complete and readable now.</a></p>
+  <div class="chapmark"><span class="n">2</span><span class="l">Chapter two<br>The router</span></div>
+  <h1>The router's impossible job</h1>
+  <p class="standfirst">It has to make a <em>discrete</em> choice &mdash; this expert,
+  not that one &mdash; while staying differentiable enough to train. Those two demands
+  are in direct conflict, and the resolution explains almost every design decision in
+  the rest of this book.</p>
+  <p class="byline">
+    <span>~15 min</span>
+    <span>Assumes: <a href="01-why-moe.html">chapter 1</a></span>
+    <span>Two animations, one exercise</span>
+  </p>
+
+  <h2 id="tiny">One part in forty-four thousand</h2>
+
+  <p>Before anything else, a sense of scale. Mixtral's router is a single matrix per
+  layer, mapping the model dimension to the number of experts:</p>
+
+  <div class="eq">
+    <span class="label">Router size</span>
+    <div class="body">
+      <span class="v">d</span><sub>model</sub> <span class="op">&times;</span>
+      <span class="v">N</span> <span class="op">&times;</span> layers
+      &nbsp;<span class="op">=</span>&nbsp;
+      4096 <span class="op">&times;</span> 8 <span class="op">&times;</span> 32
+      &nbsp;<span class="op">=</span>&nbsp;
+      <span class="hl-router">1,048,576</span>
     </div>
+    <div class="say">Every router in the entire model, added together, is
+    <b>about one million parameters</b> &mdash; against 46.7 billion in the model as a
+    whole. That's <b>one part in 44,538</b>, or 0.0022%.</div>
+  </div>
 
-    <h2>What this chapter will cover</h2>
+  <p class="pull">The router is a rounding error in the parameter count and it decides
+  where <em>everything</em> goes. Get it wrong and the other 99.998% of the model is
+  arranged in the wrong order.</p>
+
+  <div class="rung feel">
+    <span class="tag">Feel it</span>
+    <p>It's the switchboard operator, not the switchboard. Nothing important happens
+    <em>in</em> the router &mdash; no reasoning, no features, no knowledge. All it does
+    is point. But everything downstream depends on it pointing well, and a switchboard
+    operator who sends every call to the same three lines makes the other lines
+    useless no matter how good they are.</p>
+    <p><em>Where the analogy breaks:</em> a human operator knows who's busy. This one
+    is a single matrix multiply with no memory of what it just did and no idea what
+    the other tokens in the batch are doing. Making it aware of load is
+    <a href="03-load-balancing.html">chapter 3</a>.</p>
+  </div>
+
+  <h2 id="job">The job, stated precisely</h2>
+
+  <p>The router receives one token's hidden state &mdash; a vector of 4096 numbers
+  &mdash; and must produce a decision: <em>which</em> of the 8 experts should run, and
+  <em>how much</em> should each of their outputs count.</p>
+
+  <p>Step one is unremarkable. Multiply by a matrix, softmax the result:</p>
+
+  <div class="eq">
+    <span class="label">Shazeer 2017, softmax gating</span>
+    <div class="body">
+      <span class="v">G</span><sub>&sigma;</sub>(<span class="v">x</span>)
+      &nbsp;<span class="op">=</span>&nbsp;
+      <span class="hl-router">Softmax</span>(<span class="v">x</span>
+      <span class="op">&middot;</span>
+      <span class="v">W</span><sub><span class="v">g</span></sub>)
+    </div>
+    <div class="say">Multiply the token by the router matrix to get one score per
+    expert, then squash those scores into positive numbers that sum to 1. Nothing
+    exotic &mdash; this is the same operation as the output layer of any classifier.</div>
+  </div>
+
+  <p>Step two is where it gets hard. We don't <em>want</em> all eight probabilities
+  &mdash; the entire point of <a href="01-why-moe.html">chapter 1</a> was to avoid
+  running all eight experts. We want to pick <span class="v">k</span> of them and
+  ignore the rest.</p>
+
+  <p>And picking is not a differentiable operation.</p>
+
+  <div class="rung gotcha">
+    <span class="tag">The conflict</span>
+    <p><strong>Gradient descent needs continuity.</strong> It learns by asking "if I
+    nudge this weight a hair, how does the loss change?" But <code>top-k</code> is a
+    step function: nudge a router weight by 0.001 and either <em>nothing</em> changes
+    (same experts win) or the selection <em>flips entirely</em> to a different expert.
+    The derivative is zero almost everywhere and undefined at the jumps.</p>
+    <p>So the router must make a hard choice, and hard choices have no gradient.
+    That's the impossible job in one sentence.</p>
+  </div>
+
+  <h2 id="gradient">Why the gate has to multiply the output</h2>
+
+  <p>Here is the resolution, and it is genuinely clever precisely because it looks
+  like nothing at all. Recall the layer output from chapter 1:</p>
+
+  <div class="eq">
+    <span class="label">Shazeer 2017, eq. 1</span>
+    <div class="body">
+      <span class="v">y</span> &nbsp;<span class="op">=</span>&nbsp;
+      <span class="big">&Sigma;</span><sub><span class="v">i</span></sub>
+      &nbsp;<span class="hl-router"><span class="v">G</span>(<span class="v">x</span>)<sub><span class="v">i</span></sub></span>
+      &nbsp;<span class="op">&middot;</span>&nbsp;
+      <span class="hl-active"><span class="v">E</span><sub><span class="v">i</span></sub>(<span class="v">x</span>)</span>
+    </div>
+    <div class="say">The gate <b>multiplies</b> the expert's output rather than merely
+    selecting it. That multiplication is the only reason the router can be trained
+    at all.</div>
+  </div>
+
+  <p>Differentiate. The gradient of the loss with respect to a gate value is</p>
+
+  <div class="eq">
+    <span class="label">The gradient path</span>
+    <div class="body">
+      <span class="frac"><span>&part;<span class="v">y</span></span><span>&part;<span class="v">G</span><sub><span class="v">i</span></sub></span></span>
+      &nbsp;<span class="op">=</span>&nbsp;
+      <span class="hl-active"><span class="v">E</span><sub><span class="v">i</span></sub>(<span class="v">x</span>)</span>
+      &nbsp;&nbsp;&nbsp;<span class="op">&rArr;</span>&nbsp;&nbsp;&nbsp;
+      <span class="frac"><span>&part;<span class="v">L</span></span><span>&part;<span class="v">W</span><sub><span class="v">g</span></sub></span></span>
+      &nbsp;<span class="op">&ne;</span>&nbsp; 0
+    </div>
+    <div class="say">Because <i>y</i> depends on the gate, and the gate depends on
+    <b>W<sub>g</sub></b>, gradient flows back into the router. And notice <i>what</i>
+    it receives: a signal proportional to the expert's own output. The router is
+    literally told <b>“how much did routing here help?”</b></div>
+  </div>
+
+  <p>Now delete the gate. Suppose the layer just ran the winning expert directly,
+  <span class="v">y</span> = <span class="v">E</span><sub>top</sub>(<span class="v">x</span>),
+  with no weighting. The output no longer contains
+  <span class="v">W</span><sub><span class="v">g</span></sub> anywhere. The derivative
+  is exactly zero. <strong>The router would receive no gradient, ever, and would never
+  improve on its random initialisation.</strong></p>
+
+  <figure class="anim" id="anim1">
+    <svg viewBox="0 0 760 360" role="img" aria-label="Two versions of an MoE layer side by side. On the left the gate multiplies the expert output, so gradient flows backward through the gate into the router matrix and the router learns. On the right the expert is selected without a gate, the output does not depend on the router matrix, and the backward gradient stops dead.">
+      <defs>
+        <marker id="r1f" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+        </marker>
+        <marker id="r1g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="var(--ok)"/>
+        </marker>
+        <marker id="r1x" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="var(--danger)"/>
+        </marker>
+      </defs>
+
+      <rect x="6" y="6" width="366" height="286" rx="10" fill="none" stroke="var(--rule)"/>
+      <rect x="388" y="6" width="366" height="286" rx="10" fill="none" stroke="var(--rule)"/>
+      <text x="189" y="30" text-anchor="middle" font-family="var(--sans)" font-size="12" font-weight="700" fill="var(--ok)">WITH THE GATE  (what MoE does)</text>
+      <text x="571" y="30" text-anchor="middle" font-family="var(--sans)" font-size="12" font-weight="700" fill="var(--danger)">HARD SELECTION  (what breaks)</text>
+
+      <g id="r1-cols"></g>
+
+      <g id="r1-verdict" class="node">
+        <line x1="6" y1="306" x2="754" y2="306" stroke="var(--rule)"/>
+        <text id="r1-v1" x="20" y="328" font-family="var(--sans)" font-size="12" fill="var(--ok)"></text>
+        <text id="r1-v2" x="402" y="328" font-family="var(--sans)" font-size="12" fill="var(--danger)"></text>
+      </g>
+    </svg>
+  </figure>
+
+  <div class="rung math">
+    <span class="tag">The math, stated honestly</span>
+    <p>That derivation is calculus on equation 1, not a sentence quoted from a paper
+    &mdash; I'm flagging it because this book's rule is that you always know which
+    you're reading. The equation is Shazeer's; the consequence is what falls out of
+    differentiating it, and you can check the step yourself in one line.</p>
+    <p>The practical upshot is a rule you'll see obeyed in every MoE paper since:
+    <strong>the top-k selection is non-differentiable and stays that way</strong>. The
+    gradient never flows through the <em>choice</em>. It flows through the
+    <em>weight attached to the choice</em>. The router learns to assign better
+    <em>magnitudes</em>, and better rankings come along for the ride.</p>
+  </div>
+
+  <h2 id="ordering">The ordering nobody mentions</h2>
+
+  <p>So we softmax, and we take the top <span class="v">k</span>. In which order?</p>
+
+  <p>It sounds like a pedantic question. It is not. Switch and Mixtral answer it
+  differently, and their published equations say so plainly &mdash; but almost every
+  explainer flattens the two into one.</p>
+
+  <div class="eq">
+    <span class="label">Switch, eq. 1 &mdash; softmax first</span>
+    <div class="body">
+      <span class="v">p</span><sub><span class="v">i</span></sub>(<span class="v">x</span>)
+      &nbsp;<span class="op">=</span>&nbsp;
+      <span class="frac">
+        <span><span class="v">e</span><sup><span class="v">h</span>(<span class="v">x</span>)<sub><span class="v">i</span></sub></sup></span>
+        <span><span class="big">&Sigma;</span><sub><span class="v">j</span></sub><sup><span class="hl-router">N</span></sup> <span class="v">e</span><sup><span class="v">h</span>(<span class="v">x</span>)<sub><span class="v">j</span></sub></sup></span>
+      </span>
+    </div>
+    <div class="say">The denominator runs over <b>all N experts</b>. Switch computes
+    the full distribution, <i>then</i> takes the single largest.</div>
+  </div>
+
+  <div class="eq">
+    <span class="label">Mixtral, &sect;2.1 &mdash; top-k first</span>
+    <div class="body">
+      <span class="hl-router">Softmax</span>(<span class="hl-active">Top2</span>(<span class="v">x</span>
+      <span class="op">&middot;</span> <span class="v">W</span><sub><span class="v">g</span></sub>))
+    </div>
+    <div class="say">Read it inside-out: <b>Top2 runs first</b>, and the softmax is
+    applied to what survives. The denominator has <b>two</b> terms, not eight.</div>
+  </div>
+
+  <p>Same eight numbers going in. Different denominators. Which means <em>different
+  gate values on the very same expert</em> — watch:</p>
+
+  <figure class="anim" id="anim2">
+    <svg viewBox="0 0 760 430" role="img" aria-label="The same eight router scores sent down two paths. Softmaxing over all eight then taking the top one gives expert 3 a gate of 0.432. Taking the top two first then softmaxing over only those gives expert 3 a gate of 0.668. Same winner, different weight, because the denominator has eight terms versus two.">
+      <defs>
+        <marker id="r2a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+        </marker>
+      </defs>
+      <text x="380" y="22" text-anchor="middle" font-family="var(--sans)" font-size="11.5" font-weight="700" fill="var(--ink-faint)">THE SAME EIGHT ROUTER SCORES</text>
+      <g id="r2-logits"></g>
+      <line x1="380" y1="72" x2="380" y2="88" stroke="currentColor" marker-end="url(#r2a)"/>
+      <line x1="190" y1="88" x2="570" y2="88" stroke="var(--rule-strong)"/>
+      <line x1="190" y1="88" x2="190" y2="104" stroke="currentColor" marker-end="url(#r2a)"/>
+      <line x1="570" y1="88" x2="570" y2="104" stroke="currentColor" marker-end="url(#r2a)"/>
+
+      <g id="r2-cols"></g>
+    </svg>
+  </figure>
+
+  <div class="rung gotcha">
+    <span class="tag">Read that number again</span>
+    <p>Expert 3 wins under both schemes. Under Switch's ordering its gate is
+    <strong>0.432</strong>; under Mixtral's it is <strong>0.668</strong> &mdash;
+    <strong>55% larger</strong>, from identical logits. The expert's output gets
+    scaled by that gate before it enters the residual stream, so this is not
+    bookkeeping. It changes the activations, and it changes the gradient the router
+    receives.</p>
+  </div>
+
+  <p>Why does each paper choose as it does? The honest answer is that the papers don't
+  frame it as a debate, so what follows is the structural argument rather than a quote:</p>
+
+  <ul>
+    <li><strong>Softmax-over-all (Switch) keeps the gate calibrated against the full
+      field.</strong> A gate of 0.43 genuinely means “the router was 43% confident in
+      this expert out of everything available.” When the router is torn between three
+      experts, the winner's gate is <em>small</em>, and the layer's contribution shrinks
+      accordingly. Uncertainty naturally damps the output.</li>
+    <li><strong>Softmax-over-survivors (Mixtral) guarantees the gates sum to 1.</strong>
+      With top-2, the two gates always total exactly 1.0, so the layer's output is a
+      proper weighted average of two experts and its magnitude doesn't fluctuate with
+      how confident the router was. That's a real stability property when
+      <span class="v">k</span>&nbsp;&gt;&nbsp;1 &mdash; and with
+      <span class="v">k</span>&nbsp;=&nbsp;1, as in Switch, renormalising would force
+      every gate to exactly 1.0 and destroy the confidence signal entirely.</li>
+  </ul>
+
+  <p>Which explains the pattern you'll see across the literature: <strong>top-1
+  architectures tend to softmax over everything; top-k&gt;1 architectures tend to
+  normalise over the survivors.</strong> The two choices aren't arbitrary — they're
+  each the only sensible option given the <span class="v">k</span> they picked.
+  DeepSeek-V3 follows the same logic, normalising its 8 selected gates so they sum to
+  1 (we'll do that equation properly in <a href="03-load-balancing.html">chapter 3</a>,
+  because its selection rule has a twist).</p>
+
+  <h2 id="noisy">Noisy top-k, and what the noise is for</h2>
+
+  <p>Shazeer's original router adds something that looks like sabotage: random noise,
+  injected before the selection.</p>
+
+  <div class="eq">
+    <span class="label">Shazeer 2017, noisy top-k</span>
+    <div class="body">
+      <span class="v">H</span>(<span class="v">x</span>)<sub><span class="v">i</span></sub>
+      &nbsp;<span class="op">=</span>&nbsp;
+      (<span class="v">x</span> <span class="op">&middot;</span> <span class="v">W</span><sub><span class="v">g</span></sub>)<sub><span class="v">i</span></sub>
+      &nbsp;<span class="op">+</span>&nbsp;
+      <span class="hl-router">StandardNormal()</span>
+      <span class="op">&middot;</span>
+      Softplus((<span class="v">x</span> <span class="op">&middot;</span> <span class="v">W</span><sub>noise</sub>)<sub><span class="v">i</span></sub>)
+    </div>
+    <div class="say">Add Gaussian noise to each expert's score before ranking &mdash;
+    and note the noise <b>amount is itself learned</b>, through a second matrix
+    <b>W<sub>noise</sub></b>, passed through Softplus to keep it positive. The model
+    decides per-token how much randomness to inject.</div>
+  </div>
+
+  <p>Then the selection and softmax, with everything outside the top
+  <span class="v">k</span> sent to negative infinity so the softmax zeroes it:</p>
+
+  <div class="eq">
+    <span class="label">Shazeer 2017, KeepTopK</span>
+    <div class="body">
+      KeepTopK(<span class="v">v</span>, <span class="v">k</span>)<sub><span class="v">i</span></sub>
+      &nbsp;<span class="op">=</span>&nbsp;
+      <span class="hl-active"><span class="v">v</span><sub><span class="v">i</span></sub></span>
+      &nbsp;if in top <span class="v">k</span>,&nbsp;&nbsp;
+      <span class="hl-idle">&minus;&infin;</span> otherwise
+    </div>
+    <div class="say">Setting a logit to <b>&minus;&infin;</b> makes its
+    <i>e<sup>x</sup></i> exactly zero, so the losing experts drop out of the softmax
+    cleanly &mdash; and their terms vanish from the sum, which is what lets you skip
+    computing them.</div>
+  </div>
+
+  <p>So why deliberately corrupt the scores? Because a router with no noise is a
+  router that can never change its mind. If expert 3 leads expert 6 by a comfortable
+  margin, expert 6 is <em>never selected</em>, so it never runs, so it never receives
+  gradient, so it never improves, so it never catches up. Noise occasionally lets the
+  underdog through &mdash; and if it turns out to be good, the gradient it earns pulls
+  its score up for real.</p>
+
+  <p>It is exploration, in exactly the reinforcement-learning sense. And you'll notice
+  it is aimed squarely at the same disease you watched take hold at the end of
+  <a href="01-why-moe.html#pertoken">chapter 1</a>: the rich getting richer. Noisy
+  top-k is the first, weakest attempt at load balancing. <a href="03-load-balancing.html">Chapter
+  3</a> is what happened when it proved insufficient.</p>
+
+  <h2 id="reality">What routing actually looks like</h2>
+
+  <p>Enough theory &mdash; what does a trained router <em>do</em>? Mixtral's authors
+  measured it, and the results are not what the word “expert” leads you to expect.</p>
+
+  <div class="rung research">
+    <span class="tag">Research note</span>
+    <p>They looked for topic specialisation and reported: <em>“Surprisingly, we do not
+    observe obvious patterns in the assignment of experts based on the topic.”</em>
+    arXiv papers, biology abstracts, and philosophy routed much alike. Only
+    DM&nbsp;Mathematics stood apart, most likely because its synthetic templates are
+    lexically peculiar rather than because it is mathematical.</p>
+    <p>What they did find was <strong>syntactic</strong>: the token <code>self</code>
+    in Python and <code>Question</code> in English each route consistently regardless
+    of surrounding topic. And <strong>positional locality</strong> &mdash; at layer 15,
+    roughly <strong>63&ndash;67%</strong> of consecutive tokens were assigned the same
+    expert, against the ~12.5% random baseline the paper compares against.</p>
+  </div>
+
+  <p>That last figure deserves a moment. Consecutive tokens sharing an expert five
+  times more often than chance means routing decisions are <em>strongly correlated
+  along the sequence</em>. This is very good news for systems people &mdash; it means
+  expert activations have temporal locality you can cache and batch against &mdash;
+  and it is why <a href="06-systems-reality.html">chapter 6</a> can say anything
+  useful about MoE inference at all.</p>
+
+  <p>It also reframes the word “expert.” These aren't specialists in
+  <em>subjects</em>. They're specialists in <em>token shapes</em>: this expert handles
+  code punctuation, that one handles the tails of English function words. Which is
+  precisely why cutting experts smaller and letting a token combine more of them
+  turns out to work &mdash; the argument DeepSeekMoE makes in
+  <a href="05-the-lineage.html">chapter 5</a>.</p>
+
+  <div class="problem">
+    <h4>Work it yourself</h4>
+    <p>A router produces these logits for four experts:</p>
+    <pre style="margin:0.7rem 0"><code>E1 = 3.0    E2 = 2.9    E3 = 0.1    E4 = -0.5</code></pre>
+    <p>The architecture uses <strong>top-2</strong> routing.</p>
+    <p><strong>(a)</strong> Under Mixtral's ordering (top-k, then softmax over the
+    survivors), what gates do E1 and E2 receive?<br>
+    <strong>(b)</strong> Now suppose the token shifts slightly and E2's logit rises to
+    3.1, overtaking E1. How much do the two gates change?<br>
+    <strong>(c)</strong> What does your answer to (b) tell you about how much the
+    router's <em>ranking</em> matters versus its <em>margins</em> &mdash; and why might
+    that be a problem for load balancing?</p>
+    <details>
+      <summary>Show the answer</summary>
+      <p><strong>(a)</strong> Softmax over {3.0, 2.9}:
+      <code>e³·⁰ = 20.086</code>, <code>e²·⁹ = 18.174</code>, sum
+      <code>38.260</code>. So <strong>E1 = 0.525, E2 = 0.475</strong>. Nearly an even
+      split, because the logits are nearly equal.</p>
+      <p><strong>(b)</strong> Softmax over {3.0, 3.1}: <code>e³·⁰ = 20.086</code>,
+      <code>e³·¹ = 22.198</code>, sum <code>42.284</code>. Now
+      <strong>E1 = 0.475, E2 = 0.525</strong>. The gates swapped, but each moved only
+      <strong>0.05</strong>. The <em>output</em> of the layer barely changed &mdash; it
+      was ~52/48 of the same two experts before and is ~48/52 now.</p>
+      <p><strong>(c)</strong> Two lessons. First, when the top-k margin is thin the
+      exact ranking hardly matters to the output: you get a near-average of both
+      experts either way, so the layer is robust to router jitter. That's a feature.</p>
+      <p>Second &mdash; and this is the problem &mdash; <strong>the same is not true of
+      load.</strong> E3 and E4 got gate 0 in both cases; they were never even
+      candidates, and a logit of 0.1 versus 3.0 is a gulf no jitter will close. The
+      router's output is smooth, but its <em>dispatch</em> is a hard cliff: you are
+      either in the top-2 or you receive nothing at all. A tiny, permanent
+      preference for E1 and E2 starves E3 and E4 completely, and nothing in the loss
+      so far has noticed. That gap is exactly what
+      <a href="03-load-balancing.html">chapter 3</a> closes.</p>
+      <p><em>Credit for (c) if you spotted that smooth gates and hard dispatch are
+      different things.</em></p>
+    </details>
+  </div>
+
+  <div class="takeaway">
+    <h4>What you can now do</h4>
     <ul>
-      <li>Softmax gating: <code>G(x) = Softmax(x · W_g)</code>, straight from Shazeer eq. 3</li>
-      <li>Top-k, and the thing everyone flattens: <strong>Switch softmaxes over all N experts then cuts to top-1; Mixtral cuts to top-2 then softmaxes over just those two</strong> — different denominators, different router gradient</li>
-      <li>Noisy top-k gating and what the noise is actually for</li>
-      <li>Why the gate value must multiply the expert output (and what breaks if it doesn't)</li>
-      <li>Mixtral's real routing statistics — the 63–67% consecutive-token repetition</li>
+      <li>Explain why the gate must multiply the expert output, and what breaks if it
+        doesn't &mdash; in one line of calculus.</li>
+      <li>Spot whether a paper softmaxes before or after its top-k, and say what that
+        does to the denominator and the gate.</li>
+      <li>Explain why top-1 architectures normalise over all experts while top-k&gt;1
+        architectures normalise over the survivors.</li>
+      <li>Say what the noise in noisy top-k is <em>for</em>.</li>
+      <li>Describe what real experts specialise in &mdash; and it isn't topics.</li>
     </ul>
+  </div>
 
-    <p>Want to be told when it lands? <a href="https://github.com/Noman654/moe-explained">Watch
-    the repo on GitHub</a> &mdash; releases and commits show up there first. Spotted an
-    error in a chapter that <em>is</em> published, or want something covered here?
-    <a href="https://github.com/Noman654/moe-explained/issues/new">Open an issue</a>.</p>
+  <p>Everything so far has treated the router as an isolated decision-maker: one
+  token arrives, one choice comes out. But a router serves a whole batch, and its
+  choices across that batch interact. Left to itself it will discover a handful of
+  favourites and ride them &mdash; you watched it happen in chapter 1, and the
+  exercise above showed why nothing in the loss objects. Fixing that requires adding a
+  term whose only job is to make the router care about a quantity it cannot see.</p>
 
-    <nav class="seriesnav">
-      <a href="01-why-moe.html"><span class="k">Previous chapter</span><span class="t"><strong>1 &middot; Every token pays full price</strong></span></a>
-      <a href="../index.html"><span class="k">All chapters</span>
-      <span class="t"><strong>Contents</strong></span></a>
-    </nav>
+  <nav class="seriesnav">
+    <a href="01-why-moe.html">
+      <span class="k">Previous chapter</span>
+      <span class="t"><strong>1 &middot; Every token pays full price</strong></span>
+    </a>
+    <a href="03-load-balancing.html">
+      <span class="k">Next chapter</span>
+      <span class="t"><strong>3 &middot; Load balancing</strong> &mdash; and why
+      experts collapse</span>
+    </a>
+  </nav>
 
-    <section class="comments">
-      <h2>What should this chapter cover?</h2>
-      <p class="lede">It isn't written yet, which makes this the useful moment to
-      speak up. If there's a question you want answered here, or something every
-      other explanation of this topic got wrong, say so and I'll write to it.</p>
-      <div id="giscus-mount"></div>
-    </section>
+  <h3>Sources for this chapter</h3>
+  <ol class="refs">
+    <li>Shazeer et al. (2017).
+      <a href="https://arxiv.org/abs/1701.06538"><em>Outrageously Large Neural
+      Networks</em></a>. &mdash; softmax gating; noisy top-k gating; KeepTopK.</li>
+    <li>Fedus, Zoph &amp; Shazeer (2021).
+      <a href="https://arxiv.org/abs/2101.03961"><em>Switch Transformers</em></a>.
+      &mdash; eq. 1: softmax over all <em>N</em>, then top-1.</li>
+    <li>Jiang et al. (2024).
+      <a href="https://arxiv.org/abs/2401.04088"><em>Mixtral of Experts</em></a>.
+      &mdash; &sect;2.1 <code>Softmax(Top2(·))</code>; Table 1; &sect;5 routing
+      analysis.</li>
+  </ol>
+
+  <section class="comments">
+    <h2>Comments &amp; corrections</h2>
+    <p class="lede">Threads live in this book's GitHub Discussions. Questions about
+    the math are especially welcome &mdash; if a step didn't land, that's usually my
+    fault, not yours.</p>
+    <div class="fixit">
+      <span><b>Found an error?</b>
+      Every formula here was copied from the primary paper and every number verified.
+      If something is wrong, that's a bug &mdash;
+      <a href="https://github.com/Noman654/moe-explained/issues/new?title=Chapter%202%3A%20correction&amp;body=Where%20(section%20or%20equation)%3A%0A%0AWhat%27s%20wrong%3A%0A%0ASource%20that%20says%20otherwise%3A%0A">open
+      an issue</a> and I'll fix it and say so.</span>
+    </div>
+    <div id="giscus-mount"></div>
+  </section>
+
   </article>
 </div>
 
@@ -85,6 +511,334 @@
   <a href="https://github.com/Noman654/moe-explained">Source</a>
 </div></footer>
 
+<script src="../assets/anim.js"></script>
 <script src="../assets/comments.js"></script>
+<script>
+/* reading progress */
+(function () {
+  var bar = document.getElementById('prog'), art = document.querySelector('article');
+  function upd() {
+    var h = art.offsetHeight - window.innerHeight;
+    var p = h > 0 ? (window.scrollY - art.offsetTop) / h : 0;
+    bar.style.width = Math.max(0, Math.min(1, p)) * 100 + '%';
+  }
+  addEventListener('scroll', upd, { passive: true });
+  addEventListener('resize', upd); upd();
+})();
+
+/* ============ ANIMATION 1 — the gradient path, with and without ============ */
+(function () {
+  var SVG = 'http://www.w3.org/2000/svg';
+  var cols = document.getElementById('r1-cols');
+
+  // Two identical stacks; only the gate node and the backward path differ.
+  function stack(x0, gated) {
+    var g = document.createElementNS(SVG, 'g'), cx = x0 + 183;
+    var nodes = {};
+    function box(y, h, label, sub, key, fill, stroke, ink) {
+      var r = document.createElementNS(SVG, 'rect');
+      r.setAttribute('x', cx - 78); r.setAttribute('y', y);
+      r.setAttribute('width', 156); r.setAttribute('height', h);
+      r.setAttribute('rx', 6); r.setAttribute('fill', fill); r.setAttribute('stroke', stroke);
+      r.setAttribute('class', 'node');
+      g.appendChild(r);
+      var t = document.createElementNS(SVG, 'text');
+      t.setAttribute('x', cx); t.setAttribute('y', y + (sub ? 19 : h / 2 + 4));
+      t.setAttribute('text-anchor', 'middle');
+      t.setAttribute('font-family', 'var(--sans)'); t.setAttribute('font-size', '11.5');
+      t.setAttribute('fill', ink || stroke); t.setAttribute('font-weight', '700');
+      t.textContent = label; g.appendChild(t);
+      if (sub) {
+        var s = document.createElementNS(SVG, 'text');
+        s.setAttribute('x', cx); s.setAttribute('y', y + 34);
+        s.setAttribute('text-anchor', 'middle');
+        s.setAttribute('font-family', 'var(--mono)'); s.setAttribute('font-size', '10');
+        s.setAttribute('fill', 'var(--ink-soft)'); s.textContent = sub;
+        g.appendChild(s);
+      }
+      nodes[key] = r;
+      return r;
+    }
+
+    box(44, 26, 'Router  W' + 'g', null, 'router', 'var(--router-soft)', 'var(--router)');
+    box(96, 42, gated ? 'gate  g = 0.67' : 'argmax  (no gate)',
+        gated ? 'multiplies the output' : 'selects only',
+        'gate',
+        gated ? 'var(--active-soft)' : 'var(--idle-soft)',
+        gated ? 'var(--active)' : 'var(--idle)');
+    box(164, 26, 'Expert  E(x)', null, 'expert', 'var(--bg-sunken)', 'var(--rule-strong)', 'currentColor');
+    box(214, 26, gated ? 'y = g · E(x)' : 'y = E(x)', null, 'out',
+        'var(--bg-sunken)', 'var(--rule-strong)', 'currentColor');
+
+    // forward arrows
+    [[70, 96], [138, 164], [190, 214]].forEach(function (p) {
+      var l = document.createElementNS(SVG, 'line');
+      l.setAttribute('x1', cx); l.setAttribute('y1', p[0]);
+      l.setAttribute('x2', cx); l.setAttribute('y2', p[1]);
+      l.setAttribute('stroke', 'currentColor'); l.setAttribute('marker-end', 'url(#r1f)');
+      l.setAttribute('class', 'node'); g.appendChild(l);
+    });
+
+    // backward gradient path, drawn to the left of the stack
+    var bx = cx - 96;
+    var back = document.createElementNS(SVG, 'path');
+    back.setAttribute('d', gated
+      ? 'M ' + bx + ' 224 L ' + (bx - 14) + ' 224 L ' + (bx - 14) + ' 117 L ' + bx + ' 117'
+      : 'M ' + bx + ' 224 L ' + (bx - 14) + ' 224 L ' + (bx - 14) + ' 180');
+    back.setAttribute('fill', 'none');
+    back.setAttribute('stroke', gated ? 'var(--ok)' : 'var(--danger)');
+    back.setAttribute('stroke-width', '2');
+    back.setAttribute('marker-end', gated ? 'url(#r1g)' : 'url(#r1x)');
+    back.setAttribute('class', 'node');
+    g.appendChild(back);
+    nodes.back = back;
+
+    var back2 = document.createElementNS(SVG, 'path');
+    back2.setAttribute('d', 'M ' + bx + ' 107 L ' + (bx - 26) + ' 107 L ' + (bx - 26) + ' 57 L ' + bx + ' 57');
+    back2.setAttribute('fill', 'none'); back2.setAttribute('stroke', 'var(--ok)');
+    back2.setAttribute('stroke-width', '2'); back2.setAttribute('marker-end', 'url(#r1g)');
+    back2.setAttribute('class', 'node');
+    if (gated) g.appendChild(back2);
+    nodes.back2 = back2;
+
+    // the "stops here" marker for the ungated side
+    var stopT = document.createElementNS(SVG, 'text');
+    stopT.setAttribute('x', bx - 30); stopT.setAttribute('y', 176);
+    stopT.setAttribute('text-anchor', 'end');
+    stopT.setAttribute('font-family', 'var(--sans)'); stopT.setAttribute('font-size', '10.5');
+    stopT.setAttribute('fill', 'var(--danger)'); stopT.setAttribute('font-weight', '700');
+    stopT.textContent = 'stops';
+    if (!gated) g.appendChild(stopT);
+    nodes.stop = stopT;
+
+    var lbl = document.createElementNS(SVG, 'text');
+    lbl.setAttribute('x', bx - 30); lbl.setAttribute('y', 246);
+    lbl.setAttribute('text-anchor', 'end');
+    lbl.setAttribute('font-family', 'var(--sans)'); lbl.setAttribute('font-size', '10.5');
+    lbl.setAttribute('fill', 'var(--ink-faint)');
+    lbl.textContent = 'backward';
+    g.appendChild(lbl); nodes.lbl = lbl;
+
+    cols.appendChild(g);
+    return nodes;
+  }
+
+  var A = stack(6, true), B = stack(388, false);
+
+  var STEPS = [
+    { caption: 'Forward pass, both sides. A token reaches the router, an expert is chosen, an output comes out. So far the two are indistinguishable.' },
+    { caption: 'The difference: on the left the gate <b>multiplies</b> the expert output. On the right the expert is simply selected — no weight attached.' },
+    { caption: 'A loss is computed and gradient starts flowing backward from the output.' },
+    { caption: 'On the left, because <b>y = g · E(x)</b>, the gradient reaches the gate: <b>∂y/∂g = E(x)</b>. The router is told how much routing here helped.' },
+    { caption: 'And from the gate it flows on into <b>W_g</b>. The router learns.' },
+    { caption: 'On the right, <b>y = E(x)</b> contains no W_g at all. ∂y/∂W_g = 0. The gradient stops dead — the router never improves on its random initialisation.' },
+  ];
+
+  MoEAnim.create({
+    mount: document.getElementById('anim1'), steps: STEPS, interval: 2100,
+    render: function (s) {
+      [A, B].forEach(function (n) {
+        n.back.classList.toggle('hide', s < 3);
+        n.lbl.classList.toggle('hide', s < 3);
+      });
+      A.back2.classList.toggle('hide', s < 4);
+      B.stop.classList.toggle('hide', s < 5);
+      A.gate.classList.toggle('fade', s < 1);
+      B.gate.classList.toggle('fade', s < 1);
+      B.back.classList.toggle('hide', s < 3);
+
+      var v1 = document.getElementById('r1-v1'), v2 = document.getElementById('r1-v2');
+      v1.textContent = s >= 4 ? '∂L/∂W_g ≠ 0  — the router trains' : '';
+      v2.textContent = s >= 5 ? '∂L/∂W_g = 0  — the router is frozen' : '';
+    }
+  });
+})();
+
+/* ============ ANIMATION 2 — softmax before vs after the top-k ============= */
+(function () {
+  var SVG = 'http://www.w3.org/2000/svg';
+  var L = [0.8, -0.3, 2.1, 0.5, -1.2, 1.4, 0.2, -0.6];
+  var EXP = L.map(Math.exp);
+  var SUM8 = EXP.reduce(function (a, b) { return a + b; }, 0);   // 18.9079
+  var SUM2 = EXP[2] + EXP[5];                                    // 12.2214
+  var PROB8 = EXP.map(function (e) { return e / SUM8; });
+
+  // shared logits row
+  var lg = document.getElementById('r2-logits');
+  for (var i = 0; i < 8; i++) {
+    var x = 132 + i * 62;
+    var r = document.createElementNS(SVG, 'rect');
+    r.setAttribute('x', x); r.setAttribute('y', 34);
+    r.setAttribute('width', 54); r.setAttribute('height', 30);
+    r.setAttribute('rx', 4); r.setAttribute('fill', 'var(--bg-sunken)');
+    r.setAttribute('stroke', 'var(--rule-strong)');
+    lg.appendChild(r);
+    var t = document.createElementNS(SVG, 'text');
+    t.setAttribute('x', x + 27); t.setAttribute('y', 47);
+    t.setAttribute('text-anchor', 'middle'); t.setAttribute('font-family', 'var(--sans)');
+    t.setAttribute('font-size', '9.5'); t.setAttribute('fill', 'var(--ink-faint)');
+    t.textContent = 'E' + (i + 1); lg.appendChild(t);
+    var v = document.createElementNS(SVG, 'text');
+    v.setAttribute('x', x + 27); v.setAttribute('y', 59);
+    v.setAttribute('text-anchor', 'middle'); v.setAttribute('font-family', 'var(--mono)');
+    v.setAttribute('font-size', '11'); v.setAttribute('font-weight', '700');
+    v.setAttribute('fill', 'currentColor');
+    v.textContent = L[i].toFixed(1); lg.appendChild(v);
+  }
+
+  var cols = document.getElementById('r2-cols');
+  function column(x0, title, sub) {
+    var g = document.createElementNS(SVG, 'g'), cx = x0 + 175, n = {};
+    var head = document.createElementNS(SVG, 'text');
+    head.setAttribute('x', cx); head.setAttribute('y', 122);
+    head.setAttribute('text-anchor', 'middle'); head.setAttribute('font-family', 'var(--sans)');
+    head.setAttribute('font-size', '12'); head.setAttribute('font-weight', '700');
+    head.setAttribute('fill', 'currentColor'); head.textContent = title;
+    g.appendChild(head);
+    var sb = document.createElementNS(SVG, 'text');
+    sb.setAttribute('x', cx); sb.setAttribute('y', 138);
+    sb.setAttribute('text-anchor', 'middle'); sb.setAttribute('font-family', 'var(--sans)');
+    sb.setAttribute('font-size', '10.5'); sb.setAttribute('fill', 'var(--ink-faint)');
+    sb.textContent = sub; g.appendChild(sb);
+
+    // eight probability cells
+    n.cells = [];
+    for (var i = 0; i < 8; i++) {
+      var cw = 38, cxx = x0 + 8 + i * 42;
+      var r = document.createElementNS(SVG, 'rect');
+      r.setAttribute('x', cxx); r.setAttribute('y', 156);
+      r.setAttribute('width', cw); r.setAttribute('height', 34);
+      r.setAttribute('rx', 4); r.setAttribute('class', 'node');
+      g.appendChild(r);
+      var t = document.createElementNS(SVG, 'text');
+      t.setAttribute('x', cxx + cw / 2); t.setAttribute('y', 177);
+      t.setAttribute('text-anchor', 'middle'); t.setAttribute('font-family', 'var(--mono)');
+      t.setAttribute('font-size', '10'); t.setAttribute('class', 'node');
+      g.appendChild(t);
+      n.cells.push({ r: r, t: t });
+    }
+
+    // denominator readout
+    n.den = document.createElementNS(SVG, 'text');
+    n.den.setAttribute('x', cx); n.den.setAttribute('y', 218);
+    n.den.setAttribute('text-anchor', 'middle'); n.den.setAttribute('font-family', 'var(--mono)');
+    n.den.setAttribute('font-size', '12'); n.den.setAttribute('class', 'node');
+    g.appendChild(n.den);
+
+    // the resulting gate
+    n.gbox = document.createElementNS(SVG, 'rect');
+    n.gbox.setAttribute('x', cx - 82); n.gbox.setAttribute('y', 244);
+    n.gbox.setAttribute('width', 164); n.gbox.setAttribute('height', 54);
+    n.gbox.setAttribute('rx', 7); n.gbox.setAttribute('class', 'node');
+    g.appendChild(n.gbox);
+    n.gval = document.createElementNS(SVG, 'text');
+    n.gval.setAttribute('x', cx); n.gval.setAttribute('y', 274);
+    n.gval.setAttribute('text-anchor', 'middle'); n.gval.setAttribute('font-family', 'var(--sans)');
+    n.gval.setAttribute('font-size', '22'); n.gval.setAttribute('font-weight', '800');
+    n.gval.setAttribute('class', 'node');
+    g.appendChild(n.gval);
+    n.glab = document.createElementNS(SVG, 'text');
+    n.glab.setAttribute('x', cx); n.glab.setAttribute('y', 290);
+    n.glab.setAttribute('text-anchor', 'middle'); n.glab.setAttribute('font-family', 'var(--sans)');
+    n.glab.setAttribute('font-size', '10'); n.glab.setAttribute('fill', 'var(--ink-faint)');
+    n.glab.setAttribute('class', 'node');
+    g.appendChild(n.glab);
+
+    cols.appendChild(g);
+    return n;
+  }
+
+  var SW = column(10, 'SWITCH ordering', 'softmax over all 8, then top-1');
+  var MX = column(390, 'MIXTRAL ordering', 'top-2 first, then softmax');
+
+  var verdict = document.createElementNS(SVG, 'text');
+  verdict.setAttribute('x', 380); verdict.setAttribute('y', 336);
+  verdict.setAttribute('text-anchor', 'middle'); verdict.setAttribute('font-family', 'var(--sans)');
+  verdict.setAttribute('font-size', '12.5'); verdict.setAttribute('font-weight', '700');
+  cols.appendChild(verdict);
+  var verdict2 = document.createElementNS(SVG, 'text');
+  verdict2.setAttribute('x', 380); verdict2.setAttribute('y', 356);
+  verdict2.setAttribute('text-anchor', 'middle'); verdict2.setAttribute('font-family', 'var(--sans)');
+  verdict2.setAttribute('font-size', '11.5'); verdict2.setAttribute('fill', 'var(--ink-soft)');
+  cols.appendChild(verdict2);
+
+  var TOP2 = [2, 5];
+
+  var STEPS = [
+    { caption: 'Eight router scores. Both schemes are about to receive exactly these numbers — nothing else differs.' },
+    { caption: 'Switch softmaxes <b>first</b>, across all eight experts. The denominator sums all eight exponentials: 18.91.' },
+    { caption: 'Then it takes the single largest. E3 wins with a gate of <b>0.432</b> — its share of the whole field.' },
+    { caption: 'Mixtral cuts <b>first</b>. Only E3 and E6 survive the top-2; the other six are discarded before any softmax happens.' },
+    { caption: 'Then it softmaxes over just those two. The denominator has two terms: 12.22 — and the gates sum to exactly 1.' },
+    { caption: 'Same logits. Same winning expert. Gate <b>0.432</b> versus <b>0.668</b> — 55% larger, purely because of what was in the denominator.' },
+  ];
+
+  MoEAnim.create({
+    mount: document.getElementById('anim2'), steps: STEPS, interval: 2100,
+    render: function (s) {
+      // --- Switch column ---
+      SW.cells.forEach(function (c, i) {
+        var show = s >= 1;
+        c.r.classList.toggle('hide', !show);
+        c.t.classList.toggle('hide', !show);
+        var win = s >= 2 && i === 2;
+        c.r.setAttribute('fill', win ? 'var(--active-soft)' : 'var(--router-soft)');
+        c.r.setAttribute('stroke', win ? 'var(--active)' : 'var(--router)');
+        c.r.setAttribute('stroke-width', win ? 2 : 1);
+        c.r.classList.toggle('fade', s >= 2 && i !== 2);
+        c.t.classList.toggle('fade', s >= 2 && i !== 2);
+        c.t.setAttribute('fill', win ? 'var(--active)' : 'var(--router)');
+        c.t.textContent = PROB8[i].toFixed(3);
+      });
+      SW.den.classList.toggle('hide', s < 1);
+      SW.den.setAttribute('fill', 'var(--ink-soft)');
+      SW.den.textContent = 'denominator = Σ over 8 = ' + SUM8.toFixed(2);
+      SW.gbox.classList.toggle('hide', s < 2);
+      SW.gval.classList.toggle('hide', s < 2);
+      SW.glab.classList.toggle('hide', s < 2);
+      SW.gbox.setAttribute('fill', 'var(--active-soft)');
+      SW.gbox.setAttribute('stroke', 'var(--active)'); SW.gbox.setAttribute('stroke-width', 2);
+      SW.gval.setAttribute('fill', 'var(--active)');
+      SW.gval.textContent = '0.432';
+      SW.glab.textContent = 'gate on E3';
+
+      // --- Mixtral column ---
+      MX.cells.forEach(function (c, i) {
+        var kept = TOP2.indexOf(i) >= 0;
+        var show = s >= 3;
+        c.r.classList.toggle('hide', !show);
+        c.t.classList.toggle('hide', !show);
+        c.r.classList.toggle('fade', s >= 3 && !kept);
+        c.t.classList.toggle('fade', s >= 3 && !kept);
+        c.r.setAttribute('fill', kept ? 'var(--active-soft)' : 'var(--idle-soft)');
+        c.r.setAttribute('stroke', kept ? 'var(--active)' : 'var(--idle)');
+        c.r.setAttribute('stroke-width', kept ? 2 : 1);
+        c.t.setAttribute('fill', kept ? 'var(--active)' : 'var(--idle)');
+        if (s >= 4) {
+          c.t.textContent = kept ? (EXP[i] / SUM2).toFixed(3) : '—';
+        } else {
+          c.t.textContent = kept ? 'kept' : '✕';
+        }
+      });
+      MX.den.classList.toggle('hide', s < 4);
+      MX.den.setAttribute('fill', 'var(--ink-soft)');
+      MX.den.textContent = 'denominator = Σ over 2 = ' + SUM2.toFixed(2);
+      MX.gbox.classList.toggle('hide', s < 4);
+      MX.gval.classList.toggle('hide', s < 4);
+      MX.glab.classList.toggle('hide', s < 4);
+      MX.gbox.setAttribute('fill', 'var(--active-soft)');
+      MX.gbox.setAttribute('stroke', 'var(--active)'); MX.gbox.setAttribute('stroke-width', 2);
+      MX.gval.setAttribute('fill', 'var(--active)');
+      MX.gval.textContent = '0.668';
+      MX.glab.textContent = 'gate on E3  (+ 0.332 on E6)';
+
+      verdict.setAttribute('fill', s >= 5 ? 'var(--danger)' : 'transparent');
+      verdict.textContent = s >= 5 ? 'Same winner. 0.432 vs 0.668 — a 55% difference in weight.' : '';
+      verdict2.textContent = s >= 5 ? 'The denominator is the entire story: eight terms, or two.' : '';
+    }
+  });
+})();
+</script>
+
 </body>
 </html>
