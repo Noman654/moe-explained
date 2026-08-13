@@ -194,6 +194,26 @@
   supplies the <em>gradient</em>. The product routes the truth into the gradient
   without ever needing to differentiate through the counting.</p>
 
+  <div class="rung research">
+    <span class="tag">The paper says so out loud</span>
+    <p>You don't have to take my derivation on faith &mdash; Switch states the split
+    explicitly: <em>&ldquo;The objective can also be differentiated as the P-vector is
+    differentiable, but the f-vector is not.&rdquo;</em></p>
+    <p>GShard, arriving at the same problem a year earlier, made the same substitution
+    for the same reason: it replaces a non-differentiable
+    (<span class="v">c</span><sub><span class="v">e</span></sub>/<span class="v">S</span>)<sup>2</sup>
+    term with
+    <span class="v">m</span><sub><span class="v">e</span></sub> <span class="op">&middot;</span>
+    (<span class="v">c</span><sub><span class="v">e</span></sub>/<span class="v">S</span>),
+    pairing a hard count with a soft mean gate. Two labs, two years apart, both landed
+    on <em>multiply the count you can't differentiate by the probability you
+    can</em>.</p>
+  </div>
+
+  <p>Which is a useful sanity check on how central this trick is: when independent
+  groups converge on the same odd-looking product, it's usually because the
+  constraint &mdash; not the taste &mdash; forced it.</p>
+
   <figure class="anim" id="anim2">
     <svg viewBox="0 0 760 350" role="img" aria-label="Eight experts with uneven measured load. The gradient produced by the auxiliary loss on each expert's routing probability is shown as a downward arrow whose size is proportional to that expert's load, so the most overloaded expert is pushed down twenty-one times harder than the least used one.">
       <g id="a2-cols"></g>

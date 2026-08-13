@@ -1,33 +1,47 @@
 <!doctype html>
 <html lang="en">
-<!-- generated-stub -->
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Capacity, and the tokens thrown away — MoE, Explained ch.4</title>
-<meta name="description" content="Chapter 4 of MoE, Explained. Being written.">
+<title>The seat that wasn't there — MoE, Explained ch.4</title>
+<meta name="description" content="Expert capacity, the silent token drop, and why lower capacity factors turned out to be better.">
 <link rel="stylesheet" href="../assets/moe.css">
 </head>
 <body>
 
+<div class="progressrail" aria-hidden="true"><span id="prog"></span></div>
+
 <header class="masthead">
   <div class="wrap">
     <a class="brand" href="../index.html">MoE<em>,</em> Explained</a>
-    <nav><a href="../index.html">Contents</a></nav>
+    <nav>
+      <a href="../index.html">Contents</a>
+      <a href="05-the-lineage.html">Next: The lineage &rarr;</a>
+    </nav>
   </div>
 </header>
 
 <div class="book">
+
   <nav class="booknav" aria-label="Table of contents">
     <details open>
       <summary>Contents</summary>
       <p class="navtitle">Chapters</p>
       <ol>
         <li><a href="01-why-moe.html">Every token pays full price</a></li>
-        <li><a class="soon" href="02-the-router.html">The router</a></li>
-        <li><a class="soon" href="03-load-balancing.html">Load balancing, and why experts collapse</a></li>
-        <li><a aria-current="page" href="04-capacity-factor.html">Capacity, and the tokens thrown away</a></li>
-        <li><a class="soon" href="05-the-lineage.html">The lineage: Shazeer → Switch → DeepSeek</a></li>
+        <li><a href="02-the-router.html">The router</a></li>
+        <li><a href="03-load-balancing.html">Load balancing &amp; collapse</a></li>
+        <li><a href="04-capacity-factor.html" aria-current="page">Capacity &amp; dropped tokens</a>
+          <ul class="inchap">
+            <li><a href="#shapes">Why buffers exist at all</a></li>
+            <li><a href="#drop">The drop that doesn't raise</a></li>
+            <li><a href="#groups">The part explainers get wrong</a></li>
+            <li><a href="#lower">Lower was better</a></li>
+            <li><a href="#rescue">The fix that didn't work</a></li>
+            <li><a href="#invert">Inverting the problem</a></li>
+          </ul>
+        </li>
+        <li><a class="soon" href="05-the-lineage.html">The lineage</a></li>
         <li><a class="soon" href="06-systems-reality.html">The systems reality</a></li>
       </ol>
       <p class="navfoot">Every formula copied from the primary paper. Every number
@@ -36,46 +50,430 @@
   </nav>
 
   <article>
-    <div class="chapmark"><span class="n">4</span><span class="l">Chapter 4<br>Not written yet</span></div>
-    <h1>Capacity, and the tokens thrown away</h1>
-    <p class="standfirst">Experts live in fixed-size buffers because GPUs need static shapes. Overflow one and your token is silently dropped — it skips the FFN and rides the residual to the next layer. Nothing errors.</p>
 
-    <div class="rung mech">
-      <span class="tag">Being written</span>
-      <p>This chapter isn't finished. The book is written one chapter at a time and
-      reviewed before the next one starts, so what ships is checked rather than
-      merely drafted &mdash; every formula copied from the primary paper, every
-      number verified.</p>
-      <p><a href="01-why-moe.html">Chapter 1 is complete and readable now.</a></p>
+  <div class="chapmark"><span class="n">4</span><span class="l">Chapter four<br>Capacity</span></div>
+  <h1>The seat that wasn't there</h1>
+  <p class="standfirst">Experts live in fixed-size buffers. Overflow one and your
+  token skips the feed-forward network entirely and rides the residual to the next
+  layer &mdash; silently, with no error. Then the papers report something genuinely
+  surprising about how much that matters.</p>
+  <p class="byline">
+    <span>~17 min</span>
+    <span>Assumes: <a href="03-load-balancing.html">chapter 3</a></span>
+    <span>Two animations, one exercise</span>
+  </p>
+
+  <h2 id="shapes">Why there are buffers at all</h2>
+
+  <p>Chapter 3 got the router to spread tokens evenly. You might reasonably think the
+  problem is solved. It isn't, and the reason has nothing to do with machine learning.</p>
+
+  <p>GPUs and TPUs want <strong>static tensor shapes</strong>. Kernels are compiled
+  against known dimensions; memory is allocated up front; collective communication
+  operations need every participating device to agree on buffer sizes in advance. A
+  layer that says "expert 3 will process however many tokens happen to want it this
+  step" is not something you can compile efficiently, or at all.</p>
+
+  <p>So each expert is given a fixed number of seats, decided before the batch
+  arrives:</p>
+
+  <div class="eq">
+    <span class="label">Switch Transformers, eq. 3</span>
+    <div class="body">
+      expert capacity &nbsp;<span class="op">=</span>&nbsp;
+      <span class="frac">
+        <span>tokens per batch</span>
+        <span>number of experts</span>
+      </span>
+      &nbsp;<span class="op">&times;</span>&nbsp;
+      <span class="hl-router">capacity factor</span>
     </div>
+    <div class="say">Divide the batch evenly among the experts &mdash; that's the fair
+    share &mdash; then multiply by a <b>capacity factor</b>, the slack you allow for
+    imperfect balance. A factor of 1.0 is exactly the fair share and no more; 1.25
+    gives each expert a quarter more seats than it should need.</div>
+  </div>
 
-    <h2>What this chapter will cover</h2>
+  <div class="rung feel">
+    <span class="tag">Feel it</span>
+    <p>It's a restaurant that must set out its chairs before knowing who's coming. Not
+    "we'll grab more chairs if it's busy" &mdash; the chairs are bolted down at
+    build time. Capacity factor is how many spare chairs you bolt down per table.</p>
+    <p><em>Where the analogy breaks:</em> a real restaurant turns you away visibly and
+    you go elsewhere. Here, as you're about to see, the diner walks through the
+    restaurant, eats nothing, and leaves without anyone noticing.</p>
+  </div>
+
+  <h2 id="drop">The drop that doesn't raise</h2>
+
+  <p>So what happens to the token that finds every seat taken? Both foundational
+  papers describe it, in almost identical language.</p>
+
+  <div class="rung research">
+    <span class="tag">Straight from the papers</span>
+    <p><strong>Switch:</strong> <em>&ldquo;If too many tokens are routed to an expert
+    (referred to later as dropped tokens), computation is skipped and the token
+    representation is passed directly to the next layer through the residual
+    connection.&rdquo;</em></p>
+    <p><strong>GShard</strong> puts the mechanism more precisely: the token
+    <em>&ldquo;is considered as an overflowed token, where
+    G<sub>s,E</sub> degenerates into a zero vector. Such tokens have their
+    representation x<sub>s</sub> passed on to the next layer via residual
+    connections.&rdquo;</em></p>
+  </div>
+
+  <p>Read GShard's version carefully, because it explains <em>how</em> rather than
+  merely <em>what</em>. The gate vector goes to <strong>zero</strong>. Look back at the
+  weighted sum from <a href="01-why-moe.html">chapter 1</a> &mdash; if every gate is
+  zero, the entire expert term contributes nothing, and the residual branch carries
+  the token forward unchanged. No special case in the code. No branch. The token
+  simply passes through the MoE layer as though it were the identity function.</p>
+
+  <p class="pull">A &ldquo;dropped&rdquo; token isn't deleted. It just misses one
+  FFN's worth of thinking &mdash; and nothing anywhere logs that it happened.</p>
+
+  <h2 id="groups">The part almost every explainer gets wrong</h2>
+
+  <p>Here is where the standard picture &mdash; one bucket per expert, filled from the
+  whole batch &mdash; is not merely simplified but <strong>wrong</strong>, in a way
+  that changes what you'd predict.</p>
+
+  <p>Capacity is enforced <strong>per local group</strong>, not globally. GShard makes
+  this explicit as <em>local group dispatching</em>: the batch is split into
+  <span class="v">G</span> groups, each handled independently and in parallel, each
+  expert getting a fractional capacity of
+  2<span class="v">N</span>/(<span class="v">G</span><span class="op">&middot;</span><span class="v">E</span>)
+  <em>within that group</em>. Switch's own appendix pseudocode computes capacity from
+  <code>tokens_per_core</code>, not from the global batch.</p>
+
+  <p>The consequence is stark, and it's the thing to take from this chapter:</p>
+
+  <figure class="anim" id="anim1">
+    <svg viewBox="0 0 760 400" role="img" aria-label="Two token groups processed in parallel, each with four experts of capacity three. In group A a fourth token routes to expert 2, finds no seat, and rides the residual connection past the feed-forward network. At the same moment expert 2 in group B has two empty seats that the dropped token cannot reach, because capacity is enforced per group.">
+      <defs>
+        <marker id="c1a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+        </marker>
+        <marker id="c1r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="var(--danger)"/>
+        </marker>
+      </defs>
+      <rect x="6" y="6" width="366" height="292" rx="10" fill="none" stroke="var(--rule)"/>
+      <rect x="388" y="6" width="366" height="292" rx="10" fill="none" stroke="var(--rule)"/>
+      <text x="189" y="28" text-anchor="middle" font-family="var(--sans)" font-size="12" font-weight="700" fill="currentColor">GROUP A  (core 0)</text>
+      <text x="571" y="28" text-anchor="middle" font-family="var(--sans)" font-size="12" font-weight="700" fill="currentColor">GROUP B  (core 1)</text>
+      <g id="c1-cols"></g>
+      <line x1="6" y1="318" x2="754" y2="318" stroke="var(--rule)"/>
+      <text id="c1-v1" x="20" y="340" font-family="var(--sans)" font-size="12" font-weight="700"></text>
+      <text id="c1-v2" x="20" y="360" font-family="var(--sans)" font-size="11.5" fill="var(--ink-soft)"></text>
+      <text id="c1-v3" x="20" y="380" font-family="var(--sans)" font-size="11.5" fill="var(--ink-soft)"></text>
+    </svg>
+  </figure>
+
+  <div class="rung gotcha">
+    <span class="tag">Why this matters practically</span>
+    <p>Global balance does <strong>not</strong> guarantee zero drops. Your router can
+    be beautifully balanced across the whole batch &mdash; every expert at exactly
+    12.5% &mdash; and still drop tokens, because balance within each group is what
+    capacity actually tests. The more groups you split across, the smaller each group,
+    and the noisier its local distribution.</p>
+    <p>Which means capacity factor is not purely a modelling knob. It is coupled to
+    <em>how many devices you're sharding across</em>, a fact that belongs as much to
+    <a href="06-systems-reality.html">chapter 6</a> as to this one.</p>
+  </div>
+
+  <h2 id="lower">The surprise: lower was better</h2>
+
+  <p>Intuition says a bigger capacity factor is safer &mdash; more slack, fewer drops,
+  better model. Intuition is wrong, and Switch's Table 1 says so plainly.</p>
+
+  <div class="tablewrap">
+  <table>
+    <thead><tr>
+      <th>Model</th><th class="num">Capacity factor</th>
+      <th class="num">Quality after 100k steps<br><span style="font-weight:400">(neg. log perplexity)</span></th>
+      <th class="num">Time to threshold<br><span style="font-weight:400">(hours)</span></th>
+      <th class="num">Speed<br><span style="font-weight:400">(examples/sec)</span></th>
+    </tr></thead>
+    <tbody>
+      <tr><td>Switch-Base</td><td class="num">2.0</td><td class="num">&minus;1.554</td><td class="num">72.8</td><td class="num">860</td></tr>
+      <tr><td>Switch-Base</td><td class="num">1.25</td><td class="num">&minus;1.553</td><td class="num">65.0</td><td class="num">910</td></tr>
+      <tr><td><strong>Switch-Base</strong></td><td class="num"><strong>1.0</strong></td><td class="num">&minus;1.561</td><td class="num"><strong>62.8</strong></td><td class="num"><strong>1000</strong></td></tr>
+      <tr><td>MoE-Base (top-2)</td><td class="num">2.0</td><td class="num">&minus;1.547</td><td class="num">68.7</td><td class="num">840</td></tr>
+      <tr><td>MoE-Base (top-2)</td><td class="num">1.25</td><td class="num">&minus;1.559</td><td class="num">80.7</td><td class="num">790</td></tr>
+      <tr><td>MoE-Base (top-2)</td><td class="num">1.0</td><td class="num">&minus;1.572</td><td class="num">80.1</td><td class="num">860</td></tr>
+      <tr><td>T5-Base <span style="color:var(--ink-faint)">(dense)</span></td><td class="num">&mdash;</td><td class="num">&minus;1.731</td><td class="num">not reached</td><td class="num">1600</td></tr>
+      <tr><td>T5-Large <span style="color:var(--ink-faint)">(dense)</span></td><td class="num">&mdash;</td><td class="num">&minus;1.550</td><td class="num">131.1</td><td class="num">470</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p style="font-family:var(--sans);font-size:0.8rem;color:var(--ink-faint)">
+  Switch Transformers, Table 1: 128 experts, experts at every other FFN layer, 32
+  TPUv3 cores, 100k steps, quality threshold &minus;1.50 neg. log perplexity. T5-Base
+  did not reach the threshold within 100k steps.</p>
+
+  <p>Switch-Base at capacity factor <strong>1.0</strong> reaches the target quality in
+  <strong>62.8 hours</strong> at <strong>1000 examples/sec</strong>. At capacity factor
+  2.0 it takes <strong>72.8 hours</strong> at 860 examples/sec &mdash; 16% slower to
+  get to the same place. The paper's own finding is blunt: <em>&ldquo;Switch
+  Transformers perform better at lower capacity factors (1.0, 1.25).&rdquo;</em></p>
+
+  <p>The reason is that capacity you don't use isn't free. Those seats are allocated
+  memory and, critically, they are <em>communicated</em> &mdash; the all-to-all
+  operations of <a href="06-systems-reality.html">chapter 6</a> move whole buffers,
+  padding included. Doubling capacity doubles the padding you ship across the network
+  to accomplish nothing.</p>
+
+  <div class="rung research">
+    <span class="tag">Read the table honestly</span>
+    <p>Two caveats the paper flags itself, which anyone quoting this table should
+    carry along.</p>
+    <p>First, the top-2 MoE baseline got <em>slower</em> going from capacity 2.0 to
+    1.25 (840 &rarr; 790 examples/sec), which is backwards. The authors footnote it:
+    speed measurements are <em>&ldquo;both a function of the algorithm and the
+    implementation details&hellip; the final speed differences are impacted by low-level
+    optimizations.&rdquo;</em> This is not a clean monotonic curve and shouldn't be
+    presented as one.</p>
+    <p>Second, drops were rare throughout: <em>&ldquo;typically &lt;1%&rdquo;</em> of
+    tokens, with no observed dependency on the number of experts. The capacity-factor
+    result is mostly about wasted compute and communication, not about drop rate.</p>
+  </div>
+
+  <h2 id="rescue">The obvious fix, which bought nothing</h2>
+
+  <p>If dropping tokens is bad, catch them. Route an overflowed token to its
+  second-choice expert; if that's full too, its third. Switch tried exactly this,
+  under the name <strong>No-Token-Left-Behind</strong>, and it works mechanically
+  &mdash; it <em>&ldquo;will allow us to guarantee almost no tokens will be dropped
+  during training and inference.&rdquo;</em></p>
+
+  <p>It did not help.</p>
+
+  <div class="rung research">
+    <span class="tag">The negative result</span>
+    <p><em>&ldquo;We hypothesised that this could improve performance and further
+    stabilize training, but we found no empirical benefits. We suspect that once the
+    network learns associations between different tokens and experts, if this
+    association is changed (e.g. sending a token to its second highest expert) then
+    performance could be degraded.&rdquo;</em></p>
+  </div>
+
+  <p>That is worth sitting with, because it inverts the framing. A dropped token isn't
+  simply lost value to be recovered at any cost. <strong>Forcing it into the wrong
+  expert can be worse than sending it nowhere.</strong> Skipping the FFN leaves the
+  residual stream untouched &mdash; a null operation. Processing by the wrong
+  specialist actively writes noise into it.</p>
+
+  <p>GShard hedges differently: rather than a hard second choice, it dispatches to the
+  runner-up <em>stochastically</em>, with probability proportional to that expert's
+  gate weight (the condition <code>2·g₂ &gt; rnd</code> in its Algorithm 1). A token
+  is only dropped when <em>both</em> its chosen experts are full. A pressure valve,
+  not a guarantee.</p>
+
+  <h2 id="invert">Inverting the problem</h2>
+
+  <p>Step back and notice the shape of everything so far. Tokens choose experts. Some
+  experts get more tokens than they have seats. We then spend an auxiliary loss
+  (chapter 3) and a capacity factor (this chapter) fighting the imbalance that choice
+  creates.</p>
+
+  <p>What if the experts chose instead?</p>
+
+  <div class="eq">
+    <span class="label">Expert Choice routing, eq. 2</span>
+    <div class="body">
+      <span class="v">S</span> <span class="op">=</span> Softmax(<span class="v">X</span> <span class="op">&middot;</span> <span class="v">W</span><sub><span class="v">g</span></sub>)
+      &nbsp;&nbsp;&nbsp;&nbsp;
+      <span class="v">G</span>, <span class="v">I</span> <span class="op">=</span>
+      TopK(<span class="hl-active"><span class="v">S</span><sup>&#8868;</sup></span>, <span class="v">k</span>)
+    </div>
+    <div class="say">The entire idea is that <b>transpose</b>. Take the top-k along the
+    <i>expert</i> axis instead of the token axis, and every expert selects exactly
+    <i>k</i> tokens &mdash; by construction, with no loss term required.</div>
+  </div>
+
+  <p>The bucket size follows directly:</p>
+
+  <div class="eq">
+    <span class="label">Expert Choice, eq. 1</span>
+    <div class="body">
+      <span class="v">k</span> &nbsp;<span class="op">=</span>&nbsp;
+      <span class="frac">
+        <span><span class="v">n</span> <span class="op">&times;</span> <span class="v">c</span></span>
+        <span><span class="v">e</span></span>
+      </span>
+    </div>
+    <div class="say">For <i>n</i> tokens and <i>e</i> experts, each expert takes
+    exactly <i>k</i> of them. Here <b>c</b> is a capacity factor meaning something
+    different from Switch's &mdash; see the warning below.</div>
+  </div>
+
+  <p>The paper's claim is refreshingly flat: <em>&ldquo;Despite its simplicity, expert
+  choice achieves perfect load balancing by design.&rdquo;</em> No auxiliary loss. No
+  z-loss for balance. No capacity factor tuning to avoid drops. The imbalance problem
+  that consumed all of chapter 3 is defined out of existence.</p>
+
+  <figure class="anim" id="anim2">
+    <svg viewBox="0 0 760 400" role="img" aria-label="An affinity matrix of six tokens by four experts, resolved two ways. Taking the top two along each token row gives experts loads of 2, 4, 2 and 4 — imbalanced. Taking the top three along each expert column gives every expert exactly 3 — perfectly balanced — but leaves token 5 with no expert at all and token 6 with four.">
+      <g id="c2-grid"></g>
+      <line x1="40" y1="318" x2="720" y2="318" stroke="var(--rule)"/>
+      <text id="c2-v1" x="40" y="340" font-family="var(--sans)" font-size="12" font-weight="700"></text>
+      <text id="c2-v2" x="40" y="360" font-family="var(--sans)" font-size="11.5" fill="var(--ink-soft)"></text>
+      <text id="c2-v3" x="40" y="380" font-family="var(--sans)" font-size="11.5" fill="var(--ink-soft)"></text>
+    </svg>
+  </figure>
+
+  <div class="rung gotcha">
+    <span class="tag">Two capacity factors, one name</span>
+    <p>This trips people constantly. In <strong>Switch</strong>, the capacity factor
+    is <em>slack on a buffer</em>: 2.0 means each expert gets twice its fair share of
+    seats. In <strong>Expert Choice</strong>, <span class="v">c</span> is defined as
+    <em>&ldquo;on average how many experts are utilized by a token&rdquo;</em>.</p>
+    <p>So Expert Choice at <span class="v">c</span>&nbsp;=&nbsp;2 is compute-matched
+    to a top-2 model, and <span class="v">c</span>&nbsp;=&nbsp;1 to a top-1 model.
+    They are not the same quantity, and comparing &ldquo;capacity factor 2&rdquo;
+    across the two papers compares nothing.</p>
+  </div>
+
+  <p>What does Expert Choice give up? The symmetry it broke. Every expert gets exactly
+  <span class="v">k</span> tokens, but nothing now guarantees a <em>token</em> gets
+  any experts. The paper is direct about the consequence: <em>&ldquo;each token can be
+  routed to a variable number of experts and each expert can have a fixed bucket
+  size.&rdquo;</em></p>
+
+  <div class="rung research">
+    <span class="tag">Where I'm inferring, and where the paper speaks</span>
+    <p>In the worked example above, token 5 is selected by no expert at all. That
+    <em>zero</em> case is structurally possible &mdash; nothing in the formulation
+    prevents it &mdash; but I want to be precise: <strong>the paper reports variable
+    per-token expert counts and does not state how often a token receives zero</strong>.
+    Treat the zero in my example as a demonstration of what the mechanism permits, not
+    as a measured frequency.</p>
+    <p>The paper also offers an optional fix that summaries almost always omit
+    (&sect;3.3): an entropy-regularised linear program with a constraint capping each
+    token's expert count, solved with Dykstra's algorithm. So &ldquo;Expert Choice
+    gives tokens unbounded compute&rdquo; is only true of the default formulation.</p>
+  </div>
+
+  <p>And two deployment problems, both stated by the authors as limitations:</p>
+
+  <ul>
+    <li><strong>Autoregressive generation.</strong> <em>&ldquo;The expert choice method
+      might not immediately apply to auto-regressive text generation as our current
+      implementation takes in the past and future tokens to perform the top-k
+      selection.&rdquo;</em> To pick its best <span class="v">k</span> tokens, an
+      expert must see the whole batch &mdash; so a token's routing depends on tokens
+      that come <em>after</em> it. They propose grouping workarounds; it is a stated
+      limitation, not a fatal flaw.</li>
+    <li><strong>Small batches at serving time.</strong> With
+      <span class="v">k</span> = <span class="v">n</span><span class="op">&middot;</span><span class="v">c</span>/<span class="v">e</span>,
+      a small <span class="v">n</span> collapses the bucket size. The authors suggest
+      a global top-k with caps instead.</li>
+  </ul>
+
+  <div class="problem">
+    <h4>Work it yourself</h4>
+    <p>You're training an MoE with <strong>8 experts</strong>, a batch of
+    <strong>16,384 tokens</strong>, sharded across <strong>8 cores</strong> (so 8 local
+    groups of 2,048 tokens each), at <strong>capacity factor 1.0</strong>.</p>
+    <p><strong>(a)</strong> What is each expert's capacity, per group?<br>
+    <strong>(b)</strong> Your router is perfectly balanced <em>globally</em> — each
+    expert gets exactly 1/8 of the full batch. In one particular group, expert 3
+    happens to attract 300 tokens. How many are dropped?<br>
+    <strong>(c)</strong> Your colleague proposes raising the capacity factor to 2.0 to
+    eliminate drops. Using Switch's Table 1 above, argue against it — and name the
+    quantity that actually gets worse.</p>
+    <details>
+      <summary>Show the answer</summary>
+      <p><strong>(a)</strong> Capacity is computed per group, not per batch:
+      <code>2048 / 8 × 1.0 = <strong>256 seats</strong></code> per expert per group.
+      (Compute it from the global batch and you'd wrongly get 2,048 — eight times too
+      many — and conclude drops were impossible.)</p>
+      <p><strong>(b)</strong> <code>300 − 256 = <strong>44 tokens dropped</strong></code>,
+      in that group, despite the router being perfectly balanced across the batch as a
+      whole. This is the chapter's central point: <strong>global balance does not
+      prevent local overflow.</strong> Those 44 tokens skip the FFN and ride the
+      residual, and nothing logs it.</p>
+      <p><strong>(c)</strong> Doubling capacity to 2.0 gives 512 seats and would
+      indeed absorb the 44. But Switch-Base at CF 2.0 took <strong>72.8 hours</strong>
+      to reach the quality threshold versus <strong>62.8 hours</strong> at CF 1.0, and
+      ran at 860 vs 1000 examples/sec — 16% slower to the same quality. The quantity
+      that gets worse is <strong>throughput</strong>, because unused seats are still
+      allocated and still shipped: the all-to-all collectives move whole buffers,
+      padding included. You'd be paying a permanent 14% speed tax on every step to
+      rescue &lt;1% of tokens — and per No-Token-Left-Behind, rescuing them wasn't
+      worth much anyway.</p>
+      <p><em>Full credit on (b) if you divided by the group, not the batch. That single
+      distinction is what this chapter is for.</em></p>
+    </details>
+  </div>
+
+  <div class="takeaway">
+    <h4>What you can now do</h4>
     <ul>
-      <li>The capacity formula: <code>(tokens per batch / experts) × capacity factor</code></li>
-      <li>Token dropping via residual passthrough — the failure that doesn't raise</li>
-      <li>Capacity factor 1.0 / 1.25 / 2.0, and the padding waste each buys</li>
-      <li>Expert-choice routing: invert the problem and let experts pick tokens</li>
-      <li>Why inference capacity is a different problem from training capacity</li>
+      <li>Compute expert capacity, and know to divide by the <em>group</em>, not the
+        global batch.</li>
+      <li>Explain exactly what happens to a dropped token &mdash; the gate goes to
+        zero and the residual carries it &mdash; and why nothing errors.</li>
+      <li>Explain why global balance still permits local drops.</li>
+      <li>Say why <em>lower</em> capacity factors turned out to train faster.</li>
+      <li>Explain Expert Choice's transpose in one sentence, and name what it trades
+        away.</li>
+      <li>Avoid the trap of comparing "capacity factor" across papers that define it
+        differently.</li>
     </ul>
+  </div>
 
-    <p>Want to be told when it lands? <a href="https://github.com/Noman654/moe-explained">Watch
-    the repo on GitHub</a> &mdash; releases and commits show up there first. Spotted an
-    error in a chapter that <em>is</em> published, or want something covered here?
-    <a href="https://github.com/Noman654/moe-explained/issues/new">Open an issue</a>.</p>
+  <p>We now have the whole machine: conditional computation, a router, a loss to keep
+  it honest, and buffers to make it run on real hardware. Every piece arrived as a
+  response to a specific failure of the piece before it. Which makes it worth going
+  back to the beginning and reading the seven-year argument in order &mdash; because
+  the sequence explains the design far better than any of the papers do alone.</p>
 
-    <nav class="seriesnav">
-      <a href="03-load-balancing.html"><span class="k">Previous chapter</span><span class="t"><strong>3 &middot; Load balancing, and why experts collapse</strong></span></a>
-      <a href="../index.html"><span class="k">All chapters</span>
-      <span class="t"><strong>Contents</strong></span></a>
-    </nav>
+  <nav class="seriesnav">
+    <a href="03-load-balancing.html">
+      <span class="k">Previous chapter</span>
+      <span class="t"><strong>3 &middot; The loss that watches the router</strong></span>
+    </a>
+    <a href="05-the-lineage.html">
+      <span class="k">Next chapter</span>
+      <span class="t"><strong>5 &middot; The lineage</strong> &mdash; Shazeer to
+      DeepSeek, as an argument</span>
+    </a>
+  </nav>
 
-    <section class="comments">
-      <h2>What should this chapter cover?</h2>
-      <p class="lede">It isn't written yet, which makes this the useful moment to
-      speak up. If there's a question you want answered here, or something every
-      other explanation of this topic got wrong, say so and I'll write to it.</p>
-      <div id="giscus-mount"></div>
-    </section>
+  <h3>Sources for this chapter</h3>
+  <ol class="refs">
+    <li>Fedus, Zoph &amp; Shazeer (2021).
+      <a href="https://arxiv.org/abs/2101.03961"><em>Switch Transformers</em></a>.
+      &mdash; &sect;2.2 eq. 3, expert capacity; Table 1 capacity-factor sweep;
+      &lt;1% drop rate; No-Token-Left-Behind.</li>
+    <li>Lepikhin et al. (2020).
+      <a href="https://arxiv.org/abs/2006.16668"><em>GShard</em></a>. &mdash; local
+      group dispatching and fractional capacity 2N/(G&middot;E); Algorithm 1 overflow
+      conditions and stochastic second-expert dispatch; zero-gate residual passthrough.</li>
+    <li>Zhou et al. (2022).
+      <a href="https://arxiv.org/abs/2202.09368"><em>Mixture-of-Experts with Expert
+      Choice Routing</em></a>. &mdash; eq. 1 and 2; the capacity-factor definition;
+      &sect;3.3 constrained variant; &sect;6 limitations.</li>
+  </ol>
+
+  <section class="comments">
+    <h2>Comments &amp; corrections</h2>
+    <p class="lede">Threads live in this book's GitHub Discussions. The per-group
+    capacity point in particular is one I've seen drawn wrong often &mdash; if you
+    have a counterexample from a codebase, I'd like to see it.</p>
+    <div class="fixit">
+      <span><b>Found an error?</b>
+      Every formula here was copied from the primary paper and every number verified.
+      If something is wrong, that's a bug &mdash;
+      <a href="https://github.com/Noman654/moe-explained/issues/new?title=Chapter%204%3A%20correction&amp;body=Where%20(section%20or%20equation)%3A%0A%0AWhat%27s%20wrong%3A%0A%0ASource%20that%20says%20otherwise%3A%0A">open
+      an issue</a> and I'll fix it and say so.</span>
+    </div>
+    <div id="giscus-mount"></div>
+  </section>
+
   </article>
 </div>
 
@@ -85,6 +483,302 @@
   <a href="https://github.com/Noman654/moe-explained">Source</a>
 </div></footer>
 
+<script src="../assets/anim.js"></script>
 <script src="../assets/comments.js"></script>
+<script>
+(function () {
+  var bar = document.getElementById('prog'), art = document.querySelector('article');
+  function upd() {
+    var h = art.offsetHeight - window.innerHeight;
+    var p = h > 0 ? (window.scrollY - art.offsetTop) / h : 0;
+    bar.style.width = Math.max(0, Math.min(1, p)) * 100 + '%';
+  }
+  addEventListener('scroll', upd, { passive: true });
+  addEventListener('resize', upd); upd();
+})();
+
+/* ====== ANIMATION 1 — a full buffer, next to spare seats it can't reach ==== */
+(function () {
+  var SVG = 'http://www.w3.org/2000/svg';
+  var CAP = 3;
+  // per group: which expert each arriving token wants
+  var A_WANT = [0, 1, 1, 1, 1, 2, 0, 3];   // token 5 (index 4) overflows E2
+  var B_WANT = [0, 2, 3, 1, 2, 0, 3, 2];   // E2 in group B stays nearly empty
+  var cols = document.getElementById('c1-cols');
+
+  function panel(x0, want) {
+    var g = document.createElementNS(SVG, 'g'), experts = [];
+    for (var e = 0; e < 4; e++) {
+      var bx = x0 + 24 + e * 84;
+      var box = document.createElementNS(SVG, 'rect');
+      box.setAttribute('x', bx); box.setAttribute('y', 108);
+      box.setAttribute('width', 68); box.setAttribute('height', 96);
+      box.setAttribute('rx', 6); box.setAttribute('fill', 'none');
+      box.setAttribute('stroke', 'var(--rule-strong)');
+      g.appendChild(box);
+      var lab = document.createElementNS(SVG, 'text');
+      lab.setAttribute('x', bx + 34); lab.setAttribute('y', 222);
+      lab.setAttribute('text-anchor', 'middle');
+      lab.setAttribute('font-family', 'var(--sans)'); lab.setAttribute('font-size', '11');
+      lab.setAttribute('fill', 'var(--ink-faint)');
+      lab.textContent = 'E' + (e + 1);
+      g.appendChild(lab);
+      // three seats, bottom-up
+      var seats = [];
+      for (var s = 0; s < CAP; s++) {
+        var r = document.createElementNS(SVG, 'rect');
+        r.setAttribute('x', bx + 8); r.setAttribute('y', 170 - s * 30);
+        r.setAttribute('width', 52); r.setAttribute('height', 26);
+        r.setAttribute('rx', 4); r.setAttribute('class', 'node');
+        g.appendChild(r);
+        var t = document.createElementNS(SVG, 'text');
+        t.setAttribute('x', bx + 34); t.setAttribute('y', 187 - s * 30);
+        t.setAttribute('text-anchor', 'middle');
+        t.setAttribute('font-family', 'var(--mono)'); t.setAttribute('font-size', '10');
+        t.setAttribute('class', 'node');
+        g.appendChild(t);
+        seats.push({ r: r, t: t });
+      }
+      experts.push({ box: box, seats: seats, lab: lab });
+    }
+    // the overflow token, drawn riding the residual
+    var esc = document.createElementNS(SVG, 'g');
+    esc.setAttribute('class', 'node');
+    var epath = document.createElementNS(SVG, 'path');
+    epath.setAttribute('d', 'M ' + (x0 + 108) + ' 96 L ' + (x0 + 340) + ' 96 L ' + (x0 + 340) + ' 250');
+    epath.setAttribute('fill', 'none'); epath.setAttribute('stroke', 'var(--danger)');
+    epath.setAttribute('stroke-width', '2'); epath.setAttribute('stroke-dasharray', '4 3');
+    epath.setAttribute('marker-end', 'url(#c1r)');
+    esc.appendChild(epath);
+    var etxt = document.createElementNS(SVG, 'text');
+    etxt.setAttribute('x', x0 + 336); etxt.setAttribute('y', 88);
+    etxt.setAttribute('text-anchor', 'end');
+    etxt.setAttribute('font-family', 'var(--sans)'); etxt.setAttribute('font-size', '10');
+    etxt.setAttribute('fill', 'var(--danger)'); etxt.setAttribute('font-weight', '700');
+    etxt.textContent = 'skips the FFN — rides the residual';
+    esc.appendChild(etxt);
+    g.appendChild(esc);
+
+    var cap = document.createElementNS(SVG, 'text');
+    cap.setAttribute('x', x0 + 183); cap.setAttribute('y', 50);
+    cap.setAttribute('text-anchor', 'middle');
+    cap.setAttribute('font-family', 'var(--mono)'); cap.setAttribute('font-size', '10.5');
+    cap.setAttribute('fill', 'var(--ink-faint)');
+    cap.textContent = 'capacity = 3 seats per expert, in this group';
+    g.appendChild(cap);
+
+    cols.appendChild(g);
+    return { experts: experts, esc: esc, want: want };
+  }
+
+  var A = panel(6, A_WANT), B = panel(388, B_WANT);
+
+  // how many tokens have arrived at each stage
+  var ARRIVED = [0, 4, 4, 5, 5, 8];
+
+  function fill(p, n, markOverflowAt) {
+    var counts = [0, 0, 0, 0];
+    var overflowed = -1;
+    p.experts.forEach(function (e) {
+      e.seats.forEach(function (s) {
+        s.r.setAttribute('fill', 'var(--bg-sunken)');
+        s.r.setAttribute('stroke', 'var(--rule)');
+        s.t.textContent = '';
+      });
+      e.box.setAttribute('stroke', 'var(--rule-strong)');
+    });
+    for (var i = 0; i < n; i++) {
+      var e = p.want[i];
+      if (counts[e] < 3) {
+        var s = p.experts[e].seats[counts[e]];
+        s.r.setAttribute('fill', 'var(--active-soft)');
+        s.r.setAttribute('stroke', 'var(--active)');
+        s.t.setAttribute('fill', 'var(--active)');
+        s.t.textContent = 't' + (i + 1);
+        counts[e]++;
+      } else {
+        overflowed = i;
+        p.experts[e].box.setAttribute('stroke', 'var(--danger)');
+      }
+    }
+    return { counts: counts, overflowed: overflowed };
+  }
+
+  var CAPS = [
+    { caption: 'Two groups of tokens, processed independently and in parallel on two cores. Each expert has <b>three seats in each group</b> — capacity is allocated per group, not across the batch.' },
+    { caption: 'Tokens arrive and take seats. In group A, E2 has already taken three: t2, t3 and t4. It is full.' },
+    { caption: 'E2 in group A is at capacity. There is no mechanism to grow the buffer — the shape was fixed before the batch arrived.' },
+    { caption: 'A fifth token, t5, routes to E2. Every seat is taken.' },
+    { caption: 'It is not deleted. Its gate goes to zero, so the expert term contributes nothing and <b>the residual connection carries it, unchanged, to the next layer</b>. No error. No log line.' },
+    { caption: 'And here is what the usual one-bucket-per-expert diagram hides: over in group B, <b>E2 has two empty seats</b>. The token was dropped beside spare capacity it had no way to reach.' }
+  ];
+
+  MoEAnim.create({
+    mount: document.getElementById('anim1'), steps: CAPS, interval: 2300,
+    render: function (s) {
+      var ra = fill(A, ARRIVED[s]);
+      fill(B, s >= 5 ? 8 : (s >= 1 ? 4 : 0));
+      A.esc.classList.toggle('hide', s < 4);
+      B.esc.classList.toggle('hide', true);
+
+      var v1 = document.getElementById('c1-v1'),
+          v2 = document.getElementById('c1-v2'),
+          v3 = document.getElementById('c1-v3');
+      if (s >= 5) {
+        v1.textContent = 'Group A: E2 full, 1 token dropped.      Group B: E2 holds 1 token — 2 seats free.';
+        v1.setAttribute('fill', 'var(--danger)');
+        v2.textContent = 'Capacity is enforced per group, so spare seats in another group are unreachable.';
+        v3.textContent = 'A globally balanced router still drops tokens. That is why capacity factor exists.';
+      } else if (s >= 3) {
+        v1.textContent = 'Overflow: t5 wants E2, E2 has 3 of 3 seats taken.';
+        v1.setAttribute('fill', 'var(--danger)');
+        v2.textContent = s >= 4 ? 'Gate → 0. The MoE layer becomes the identity function for this token.' : '';
+        v3.textContent = '';
+      } else {
+        v1.textContent = ''; v2.textContent = ''; v3.textContent = '';
+      }
+    }
+  });
+})();
+
+/* ========= ANIMATION 2 — the transpose: who picks whom ==================== */
+(function () {
+  var SVG = 'http://www.w3.org/2000/svg';
+  var S = [
+    [0.7, 0.2, 0.6, 0.1],
+    [0.3, 0.8, 0.2, 0.4],
+    [0.9, 0.7, 0.8, 0.2],
+    [0.1, 0.6, 0.3, 0.5],
+    [0.2, 0.4, 0.1, 0.3],
+    [0.5, 0.9, 0.4, 0.6]
+  ];
+  var nT = 6, nE = 4, X0 = 210, Y0 = 60, CW = 84, CH = 38;
+
+  // token choice: top-2 per row
+  var TOKPICK = S.map(function (row) {
+    return row.map(function (v, i) { return [v, i]; })
+              .sort(function (a, b) { return b[0] - a[0]; })
+              .slice(0, 2).map(function (p) { return p[1]; });
+  });
+  // expert choice: top-3 per column
+  var EXPPICK = [];
+  for (var e = 0; e < nE; e++) {
+    EXPPICK.push(S.map(function (row, t) { return [row[e], t]; })
+                  .sort(function (a, b) { return b[0] - a[0]; })
+                  .slice(0, 3).map(function (p) { return p[1]; }));
+  }
+
+  var grid = document.getElementById('c2-grid');
+  var cells = [];
+  for (var t = 0; t < nT; t++) {
+    cells.push([]);
+    for (var e2 = 0; e2 < nE; e2++) {
+      var r = document.createElementNS(SVG, 'rect');
+      r.setAttribute('x', X0 + e2 * CW); r.setAttribute('y', Y0 + t * CH);
+      r.setAttribute('width', CW - 4); r.setAttribute('height', CH - 4);
+      r.setAttribute('rx', 4); r.setAttribute('class', 'node');
+      grid.appendChild(r);
+      var tx = document.createElementNS(SVG, 'text');
+      tx.setAttribute('x', X0 + e2 * CW + (CW - 4) / 2);
+      tx.setAttribute('y', Y0 + t * CH + 22);
+      tx.setAttribute('text-anchor', 'middle');
+      tx.setAttribute('font-family', 'var(--mono)'); tx.setAttribute('font-size', '11');
+      tx.textContent = S[t][e2].toFixed(1);
+      grid.appendChild(tx);
+      cells[t].push({ r: r, t: tx });
+    }
+    var rl = document.createElementNS(SVG, 'text');
+    rl.setAttribute('x', X0 - 12); rl.setAttribute('y', Y0 + t * CH + 22);
+    rl.setAttribute('text-anchor', 'end');
+    rl.setAttribute('font-family', 'var(--sans)'); rl.setAttribute('font-size', '11');
+    rl.setAttribute('fill', 'var(--ink-faint)');
+    rl.textContent = 'token ' + (t + 1);
+    grid.appendChild(rl);
+  }
+  var rowTot = [], colTot = [];
+  for (var e3 = 0; e3 < nE; e3++) {
+    var cl = document.createElementNS(SVG, 'text');
+    cl.setAttribute('x', X0 + e3 * CW + (CW - 4) / 2); cl.setAttribute('y', Y0 - 10);
+    cl.setAttribute('text-anchor', 'middle');
+    cl.setAttribute('font-family', 'var(--sans)'); cl.setAttribute('font-size', '11');
+    cl.setAttribute('fill', 'var(--ink-faint)');
+    cl.textContent = 'E' + (e3 + 1);
+    grid.appendChild(cl);
+    var ct = document.createElementNS(SVG, 'text');
+    ct.setAttribute('x', X0 + e3 * CW + (CW - 4) / 2);
+    ct.setAttribute('y', Y0 + nT * CH + 18);
+    ct.setAttribute('text-anchor', 'middle');
+    ct.setAttribute('font-family', 'var(--mono)'); ct.setAttribute('font-size', '12');
+    ct.setAttribute('font-weight', '700'); ct.setAttribute('class', 'node');
+    grid.appendChild(ct); colTot.push(ct);
+  }
+  for (var t2 = 0; t2 < nT; t2++) {
+    var rt = document.createElementNS(SVG, 'text');
+    rt.setAttribute('x', X0 + nE * CW + 10); rt.setAttribute('y', Y0 + t2 * CH + 22);
+    rt.setAttribute('font-family', 'var(--mono)'); rt.setAttribute('font-size', '12');
+    rt.setAttribute('font-weight', '700'); rt.setAttribute('class', 'node');
+    grid.appendChild(rt); rowTot.push(rt);
+  }
+
+  var STEPS = [
+    { caption: 'The affinity matrix <b>S</b>: six tokens down the side, four experts across the top. Every routing scheme in this book is a rule for choosing cells from this grid.' },
+    { caption: 'Token choice — what every chapter so far has assumed. Scan each <b>row</b> and keep the top 2. Each token gets exactly two experts.' },
+    { caption: 'Now count the columns. E2 and E4 took four tokens each; E1 and E3 took two. Imbalanced — and this is exactly what chapter 3\'s auxiliary loss exists to fight.' },
+    { caption: 'Expert choice transposes the operation. Scan each <b>column</b> instead, keeping the top k = n·c/e = 3 tokens per expert.' },
+    { caption: 'Every expert now holds exactly 3. <b>Perfect balance, by construction</b> — no auxiliary loss, no capacity factor, nothing to tune.' },
+    { caption: 'But count the rows: token 6 got four experts, token 4 got one, and <b>token 5 got none at all</b>. The imbalance didn\'t vanish — it moved from the experts to the tokens.' }
+  ];
+
+  MoEAnim.create({
+    mount: document.getElementById('anim2'), steps: STEPS, interval: 2300,
+    render: function (s) {
+      var mode = s >= 3 ? 'expert' : (s >= 1 ? 'token' : 'none');
+      var chosen = {};
+      if (mode === 'token') {
+        TOKPICK.forEach(function (es, t) { es.forEach(function (e) { chosen[t + ',' + e] = 1; }); });
+      } else if (mode === 'expert') {
+        EXPPICK.forEach(function (ts, e) { ts.forEach(function (t) { chosen[t + ',' + e] = 1; }); });
+      }
+      var rc = [0, 0, 0, 0, 0, 0], cc = [0, 0, 0, 0];
+      for (var t = 0; t < nT; t++) for (var e = 0; e < nE; e++) {
+        var on = chosen[t + ',' + e];
+        if (on) { rc[t]++; cc[e]++; }
+        var c = cells[t][e];
+        c.r.setAttribute('fill', on ? 'var(--active-soft)' : 'var(--bg-sunken)');
+        c.r.setAttribute('stroke', on ? 'var(--active)' : 'var(--rule)');
+        c.r.setAttribute('stroke-width', on ? 2 : 1);
+        c.t.setAttribute('fill', on ? 'var(--active)' : 'var(--ink-faint)');
+        c.t.setAttribute('font-weight', on ? '700' : '400');
+      }
+      colTot.forEach(function (n, e) {
+        n.classList.toggle('hide', !(s === 2 || s >= 4));
+        n.textContent = cc[e];
+        n.setAttribute('fill', s >= 4 ? 'var(--ok)' : (cc[e] === 4 ? 'var(--danger)' : 'var(--ink-soft)'));
+      });
+      rowTot.forEach(function (n, t) {
+        n.classList.toggle('hide', s < 5);
+        n.textContent = rc[t];
+        n.setAttribute('fill', rc[t] === 0 ? 'var(--danger)' : (rc[t] >= 4 ? 'var(--danger)' : 'var(--ink-soft)'));
+      });
+
+      var v1 = document.getElementById('c2-v1'), v2 = document.getElementById('c2-v2'),
+          v3 = document.getElementById('c2-v3');
+      if (s >= 5) {
+        v1.textContent = 'Expert load: 3, 3, 3, 3 — perfect.      Token service: 2, 2, 3, 1, 0, 4 — not.';
+        v1.setAttribute('fill', 'var(--danger)');
+        v2.textContent = 'Expert Choice buys guaranteed expert balance by giving up guaranteed token service.';
+        v3.textContent = 'The zero here is what the mechanism permits; the paper does not report how often it occurs.';
+      } else if (s >= 4) {
+        v1.textContent = 'Every expert selected exactly k = 3 tokens. No loss term was involved.';
+        v1.setAttribute('fill', 'var(--ok)'); v2.textContent = ''; v3.textContent = '';
+      } else if (s === 2) {
+        v1.textContent = 'Expert load: 2, 4, 2, 4 — twice the work for E2 and E4.';
+        v1.setAttribute('fill', 'var(--danger)'); v2.textContent = ''; v3.textContent = '';
+      } else { v1.textContent = ''; v2.textContent = ''; v3.textContent = ''; }
+    }
+  });
+})();
+</script>
+
 </body>
 </html>
