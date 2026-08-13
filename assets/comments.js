@@ -1,0 +1,62 @@
+/* ==========================================================================
+   MoE, Explained — comments, via giscus (GitHub Discussions)
+   --------------------------------------------------------------------------
+   The same setup "How To Scale Your Model" uses. Threads live in GitHub
+   Discussions, so there is no database, no tracking, and no account for us to
+   administer — and the people who show up are people who can argue with the math.
+
+   This is the only third-party script in the book. Everything that renders the
+   content itself — diagrams, animations, math — is local and works offline.
+   tools/to_artifact.py strips this file when packaging a chapter for sharing.
+   ========================================================================== */
+(function () {
+  "use strict";
+
+  var mount = document.getElementById("giscus-mount");
+  if (!mount) return;
+
+  // Mirror the page's own three-state theme logic: an explicit data-theme wins,
+  // otherwise fall back to the OS preference.
+  function theme() {
+    var stamped = document.documentElement.getAttribute("data-theme");
+    if (stamped === "dark") return "dark";
+    if (stamped === "light") return "light";
+    return window.matchMedia &&
+           window.matchMedia("(prefers-color-scheme: dark)").matches
+      ? "dark" : "light";
+  }
+
+  var s = document.createElement("script");
+  s.src = "https://giscus.app/client.js";
+  s.async = true;
+  s.crossOrigin = "anonymous";
+  var attrs = {
+    "data-repo":              "Noman654/moe-explained",
+    "data-repo-id":           "R_kgDOT3T2LQ",
+    "data-category":          "Announcements",
+    "data-category-id":       "DIC_kwDOT3T2Lc4DDSa5",
+    "data-mapping":           "pathname",   // one thread per chapter
+    "data-strict":            "1",
+    "data-reactions-enabled": "1",
+    "data-emit-metadata":     "0",
+    "data-input-position":    "top",
+    "data-theme":             theme(),
+    "data-lang":              "en",
+    "data-loading":           "lazy"
+  };
+  for (var k in attrs) if (attrs.hasOwnProperty(k)) s.setAttribute(k, attrs[k]);
+  mount.appendChild(s);
+
+  // Keep the embedded thread in step if the viewer flips their OS theme mid-read.
+  if (window.matchMedia) {
+    var mq = window.matchMedia("(prefers-color-scheme: dark)");
+    var onChange = function () {
+      var frame = document.querySelector("iframe.giscus-frame");
+      if (!frame) return;
+      frame.contentWindow.postMessage(
+        { giscus: { setConfig: { theme: theme() } } }, "https://giscus.app");
+    };
+    mq.addEventListener ? mq.addEventListener("change", onChange)
+                        : mq.addListener(onChange);
+  }
+})();

@@ -548,3 +548,28 @@ footer.site { border-top: 1px solid var(--rule); margin-top: 4rem; padding: 2rem
   letter-spacing: 0.11em; text-transform: uppercase; color: var(--ok);
 }
 .takeaway > :last-child { margin-bottom: 0; }
+
+/* ==========================================================================
+   COMMENTS & CORRECTIONS
+   ========================================================================== */
+.comments { margin-top: 4rem; border-top: 1px solid var(--rule); padding-top: 2rem; }
+.comments h2 { margin-top: 0; }
+.comments .lede {
+  font-family: var(--sans); font-size: 0.88rem; line-height: 1.6;
+  color: var(--ink-soft); margin-bottom: 1.4rem;
+}
+#giscus-mount { margin-top: 1.5rem; min-height: 8rem; }
+
+/* The correction path gets its own affordance — for a book whose promise is
+   "every formula copied from the primary paper", a found error is the most
+   valuable thing a reader can send. */
+.fixit {
+  display: flex; gap: 0.9rem; align-items: flex-start;
+  border: 1px solid var(--rule-strong); border-left: 3px solid var(--danger);
+  border-radius: var(--radius); background: var(--bg-sunken);
+  padding: 0.95rem 1.15rem; margin: 1.6rem 0;
+  font-family: var(--sans); font-size: 0.86rem; line-height: 1.55;
+}
+.fixit b { display: block; color: var(--ink); margin-bottom: 0.15rem; }
+.fixit span { color: var(--ink-soft); }
+.fixit a { font-weight: 700; white-space: nowrap; }

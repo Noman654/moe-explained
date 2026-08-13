@@ -52,7 +52,10 @@ def build(src: Path) -> str:
     def inline_script(m):
         src = m.group(1)
         if src.startswith(("http://", "https://", "//")):
-            sys.exit(f"{src}: remote script would be blocked by CSP")
+            # Remote scripts are blocked by the artifact CSP. The only one the book
+            # ships is giscus, which is chrome rather than content — drop it so the
+            # chapter still reads instead of failing the build.
+            return f"<!-- dropped remote script (blocked by artifact CSP): {src} -->"
         path = (src_dir / src).resolve()
         if not path.is_file():
             sys.exit(f"script not found: {path}")
@@ -62,6 +65,12 @@ def build(src: Path) -> str:
     src_dir = src.parent
     body = re.sub(r'<script[^>]+src=["\']([^"\']+)["\'][^>]*>\s*</script>',
                   inline_script, body, flags=re.I)
+
+    # Comments belong on the real site. giscus can't load under the artifact CSP,
+    # so leaving the section in would render an empty, confusing heading.
+    body = re.sub(r'<section class="comments">.*?</section>', "", body, flags=re.S)
+    body = re.sub(r'<script>[^<]*?/\* ---- inlined from assets/comments\.js ---- \*/.*?</script>',
+                  "", body, flags=re.S)
 
     # Same-page anchors survive; cross-post links would 404 inside an artifact.
     body = re.sub(r'href="(?:\.\./)?(?:posts/)?\d\d-[a-z0-9-]+\.html"',

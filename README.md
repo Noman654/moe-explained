@@ -3,8 +3,11 @@
 **A six-chapter book on Mixture-of-Experts — from "what even is an expert" to the load-balancing math that keeps a 671B-parameter model from eating itself.**
 
 Every chapter is a self-contained HTML page with hand-authored SVG diagrams, **step-through
-animations** you can pause and scrub, and interactive panels. No build step, no dependencies,
-no CDN, no video files. Open a file, read a chapter.
+animations** you can pause and scrub, and interactive panels. No build step, no video files —
+the content renders from local files alone and works offline. Open a file, read a chapter.
+
+*(The one third-party script in the book is [giscus](https://giscus.app), which powers the
+comment thread at the foot of each chapter. Nothing that renders the book depends on it.)*
 
 👉 **[Start reading →](https://noman654.github.io/moe-explained/)**
 
@@ -148,6 +151,26 @@ copied from the paper — links go to the exact paper, not a summary of it.
 6. Jiang et al. (2024) — [*Mixtral of Experts*](https://arxiv.org/abs/2401.04088)
 7. Dai et al. (2024) — [*DeepSeekMoE: Towards Ultimate Expert Specialization*](https://arxiv.org/abs/2401.06066)
 8. DeepSeek-AI (2024) — [*DeepSeek-V3 Technical Report*](https://arxiv.org/abs/2412.19437)
+
+---
+
+## Feedback & corrections
+
+**Found an error?** That's the most valuable thing you can send. This book's whole
+promise is that every formula was copied from the primary paper and every number
+verified — so a wrong subscript is a bug, not a nitpick.
+[Open an issue](https://github.com/Noman654/moe-explained/issues/new) and it gets
+fixed, with the correction noted.
+
+**Questions about the math** belong in the comment thread at the foot of each chapter
+(powered by [giscus](https://giscus.app), backed by this repo's
+[Discussions](https://github.com/Noman654/moe-explained/discussions)). If a step didn't
+land, that's usually the writing's fault — and it tells me what to rewrite.
+
+**Want a topic covered?** The unwritten chapters have comment threads too. Saying what
+you want from chapter 3 before it exists is more useful than telling me after.
+
+**PRs welcome** for typos, clearer explanations, and broken links.
 
 ---
 
