@@ -31,7 +31,7 @@ CHAPTERS = [
             "just those two</strong> — different denominators, different router gradient",
             "Noisy top-k gating and what the noise is actually for",
             "Why the gate value must multiply the expert output (and what breaks if it doesn't)",
-            "Mixtral's real routing statistics — the 63–67% consecutive-token repetition",
+            "Mixtral's real routing statistics — 24-28% top-1 repetition against a 12.5% baseline",
         ])),
     ("03-load-balancing",  "Load balancing, and why experts collapse", dict(
         standfirst="Left alone, a router picks favourites and the rich get richer. "
