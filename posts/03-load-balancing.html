@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<!-- generated-stub -->
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Load balancing, and why experts collapse — MoE, Explained ch.3</title>
+<meta name="description" content="Chapter 3 of MoE, Explained. Being written.">
+<link rel="stylesheet" href="../assets/moe.css">
+</head>
+<body>
+
+<header class="masthead">
+  <div class="wrap">
+    <a class="brand" href="../index.html">MoE<em>,</em> Explained</a>
+    <nav><a href="../index.html">Contents</a></nav>
+  </div>
+</header>
+
+<div class="book">
+  <nav class="booknav" aria-label="Table of contents">
+    <details open>
+      <summary>Contents</summary>
+      <p class="navtitle">Chapters</p>
+      <ol>
+        <li><a href="01-why-moe.html">Every token pays full price</a></li>
+        <li><a class="soon" href="02-the-router.html">The router</a></li>
+        <li><a aria-current="page" href="03-load-balancing.html">Load balancing, and why experts collapse</a></li>
+        <li><a class="soon" href="04-capacity-factor.html">Capacity, and the tokens thrown away</a></li>
+        <li><a class="soon" href="05-the-lineage.html">The lineage: Shazeer → Switch → DeepSeek</a></li>
+        <li><a class="soon" href="06-systems-reality.html">The systems reality</a></li>
+      </ol>
+      <p class="navfoot">Every formula copied from the primary paper. Every number
+      cited. Blank cells where a paper doesn't report a figure.</p>
+    </details>
+  </nav>
+
+  <article>
+    <div class="chapmark"><span class="n">3</span><span class="l">Chapter 3<br>Not written yet</span></div>
+    <h1>Load balancing, and why experts collapse</h1>
+    <p class="standfirst">Left alone, a router picks favourites and the rich get richer. You watched it happen in chapter 1. This is the loss term that stops it — the most misunderstood equation in MoE.</p>
+
+    <div class="rung mech">
+      <span class="tag">Being written</span>
+      <p>This chapter isn't finished. The book is written one chapter at a time and
+      reviewed before the next one starts, so what ships is checked rather than
+      merely drafted &mdash; every formula copied from the primary paper, every
+      number verified.</p>
+      <p><a href="01-why-moe.html">Chapter 1 is complete and readable now.</a></p>
+    </div>
+
+    <h2>What this chapter will cover</h2>
+    <ul>
+      <li>Expert collapse, and why it is self-reinforcing</li>
+      <li>Switch's auxiliary loss <code>α · N · Σ f_i · P_i</code> — and why the product works when neither factor alone does</li>
+      <li>Why one factor is non-differentiable and it doesn't matter</li>
+      <li>Router z-loss: <code>L_z = (1/B) Σ (log Σ e^{x_j})²</code>, and the bfloat16 roundoff problem it solves</li>
+      <li>DeepSeek-V3's auxiliary-loss-free bias trick</li>
+    </ul>
+
+    <p>Want to be told when it lands? <a href="https://github.com/Noman654/moe-explained">Watch
+    the repo on GitHub</a> &mdash; releases and commits show up there first. Spotted an
+    error in a chapter that <em>is</em> published, or want something covered here?
+    <a href="https://github.com/Noman654/moe-explained/issues/new">Open an issue</a>.</p>
+
+    <nav class="seriesnav">
+      <a href="02-the-router.html"><span class="k">Previous chapter</span><span class="t"><strong>2 &middot; The router</strong></span></a>
+      <a href="../index.html"><span class="k">All chapters</span>
+      <span class="t"><strong>Contents</strong></span></a>
+    </nav>
+  </article>
+</div>
+
+<footer class="site"><div class="wrap">
+  MoE, Explained &middot; Chapter 3 of 6 &middot; Prose CC BY 4.0, code MIT
+</div></footer>
+
+</body>
+</html>

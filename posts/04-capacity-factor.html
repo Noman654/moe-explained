@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<!-- generated-stub -->
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Capacity, and the tokens thrown away — MoE, Explained ch.4</title>
+<meta name="description" content="Chapter 4 of MoE, Explained. Being written.">
+<link rel="stylesheet" href="../assets/moe.css">
+</head>
+<body>
+
+<header class="masthead">
+  <div class="wrap">
+    <a class="brand" href="../index.html">MoE<em>,</em> Explained</a>
+    <nav><a href="../index.html">Contents</a></nav>
+  </div>
+</header>
+
+<div class="book">
+  <nav class="booknav" aria-label="Table of contents">
+    <details open>
+      <summary>Contents</summary>
+      <p class="navtitle">Chapters</p>
+      <ol>
+        <li><a href="01-why-moe.html">Every token pays full price</a></li>
+        <li><a class="soon" href="02-the-router.html">The router</a></li>
+        <li><a class="soon" href="03-load-balancing.html">Load balancing, and why experts collapse</a></li>
+        <li><a aria-current="page" href="04-capacity-factor.html">Capacity, and the tokens thrown away</a></li>
+        <li><a class="soon" href="05-the-lineage.html">The lineage: Shazeer → Switch → DeepSeek</a></li>
+        <li><a class="soon" href="06-systems-reality.html">The systems reality</a></li>
+      </ol>
+      <p class="navfoot">Every formula copied from the primary paper. Every number
+      cited. Blank cells where a paper doesn't report a figure.</p>
+    </details>
+  </nav>
+
+  <article>
+    <div class="chapmark"><span class="n">4</span><span class="l">Chapter 4<br>Not written yet</span></div>
+    <h1>Capacity, and the tokens thrown away</h1>
+    <p class="standfirst">Experts live in fixed-size buffers because GPUs need static shapes. Overflow one and your token is silently dropped — it skips the FFN and rides the residual to the next layer. Nothing errors.</p>
+
+    <div class="rung mech">
+      <span class="tag">Being written</span>
+      <p>This chapter isn't finished. The book is written one chapter at a time and
+      reviewed before the next one starts, so what ships is checked rather than
+      merely drafted &mdash; every formula copied from the primary paper, every
+      number verified.</p>
+      <p><a href="01-why-moe.html">Chapter 1 is complete and readable now.</a></p>
+    </div>
+
+    <h2>What this chapter will cover</h2>
+    <ul>
+      <li>The capacity formula: <code>(tokens per batch / experts) × capacity factor</code></li>
+      <li>Token dropping via residual passthrough — the failure that doesn't raise</li>
+      <li>Capacity factor 1.0 / 1.25 / 2.0, and the padding waste each buys</li>
+      <li>Expert-choice routing: invert the problem and let experts pick tokens</li>
+      <li>Why inference capacity is a different problem from training capacity</li>
+    </ul>
+
+    <p>Want to be told when it lands? <a href="https://github.com/Noman654/moe-explained">Watch
+    the repo on GitHub</a> &mdash; releases and commits show up there first. Spotted an
+    error in a chapter that <em>is</em> published, or want something covered here?
+    <a href="https://github.com/Noman654/moe-explained/issues/new">Open an issue</a>.</p>
+
+    <nav class="seriesnav">
+      <a href="03-load-balancing.html"><span class="k">Previous chapter</span><span class="t"><strong>3 &middot; Load balancing, and why experts collapse</strong></span></a>
+      <a href="../index.html"><span class="k">All chapters</span>
+      <span class="t"><strong>Contents</strong></span></a>
+    </nav>
+  </article>
+</div>
+
+<footer class="site"><div class="wrap">
+  MoE, Explained &middot; Chapter 4 of 6 &middot; Prose CC BY 4.0, code MIT
+</div></footer>
+
+</body>
+</html>
