@@ -116,7 +116,9 @@ moe-explained/
 │   ├── moe.css         # the whole design system, one file
 │   └── anim.js         # step/scrub animation engine (~4KB, no deps)
 └── tools/
-    └── to_artifact.py  # strips a chapter to a shareable fragment
+    ├── to_artifact.py  # strips a chapter to a shareable fragment
+    ├── make_stubs.py   # placeholder pages for unwritten chapters
+    └── check.py        # pre-publish QA: JS syntax, links, assets, furniture
 ```
 
 **To read locally:** `open index.html`. That's the whole toolchain.
@@ -130,11 +132,13 @@ moe-explained/
 | # | Chapter | State |
 |---|---|---|
 | 1 | Every token pays full price | ✅ Shipped — 3 animations, 1 exercise |
-| 2 | The router | ⏳ Next up |
-| 3 | Load balancing | ⏳ Outlined |
-| 4 | Capacity factor | ⏳ Outlined |
-| 5 | The lineage | ⏳ Outlined |
-| 6 | Systems reality | ⏳ Outlined |
+| 2 | The router's impossible job | ✅ Shipped — 2 animations, 1 exercise |
+| 3 | The loss that watches the router | ✅ Shipped — 2 animations, 1 exercise |
+| 4 | The seat that wasn't there | ✅ Shipped — 2 animations, 1 exercise |
+| 5 | Seven years of arguing | ✅ Shipped — 1 animation, 1 exercise |
+| 6 | When the network becomes the model | ✅ Shipped — 2 animations, 1 exercise |
+
+**The book is complete.** 12 step-through animations, 6 exercises, ~100 minutes of reading.
 
 ---
 

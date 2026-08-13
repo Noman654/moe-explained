@@ -536,7 +536,7 @@
 
   MoEAnim.create({
     mount: document.getElementById('anim1'),
-    steps: P.map(function (p) { return { caption: '<b>' + p.name + '</b> — ' + p.react; }; }),
+    steps: P.map(function (p) { return { caption: '<b>' + p.name + '</b> — ' + p.react }; }),
     interval: 3000,
     render: function (s) {
       nodes.forEach(function (n, i) {

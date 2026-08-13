@@ -1,34 +1,48 @@
 <!doctype html>
 <html lang="en">
-<!-- generated-stub -->
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>The systems reality — MoE, Explained ch.6</title>
-<meta name="description" content="Chapter 6 of MoE, Explained. Being written.">
+<title>When the network becomes the model — MoE, Explained ch.6</title>
+<meta name="description" content="Expert parallelism, the two all-to-alls, and why a sparse model has dense-model memory needs.">
 <link rel="stylesheet" href="../assets/moe.css">
 </head>
 <body>
 
+<div class="progressrail" aria-hidden="true"><span id="prog"></span></div>
+
 <header class="masthead">
   <div class="wrap">
     <a class="brand" href="../index.html">MoE<em>,</em> Explained</a>
-    <nav><a href="../index.html">Contents</a></nav>
+    <nav>
+      <a href="../index.html">Contents</a>
+      <a href="01-why-moe.html">Back to chapter 1</a>
+    </nav>
   </div>
 </header>
 
 <div class="book">
+
   <nav class="booknav" aria-label="Table of contents">
     <details open>
       <summary>Contents</summary>
       <p class="navtitle">Chapters</p>
       <ol>
         <li><a href="01-why-moe.html">Every token pays full price</a></li>
-        <li><a class="soon" href="02-the-router.html">The router</a></li>
-        <li><a class="soon" href="03-load-balancing.html">Load balancing, and why experts collapse</a></li>
-        <li><a class="soon" href="04-capacity-factor.html">Capacity, and the tokens thrown away</a></li>
-        <li><a class="soon" href="05-the-lineage.html">The lineage: Shazeer → Switch → DeepSeek</a></li>
-        <li><a aria-current="page" href="06-systems-reality.html">The systems reality</a></li>
+        <li><a href="02-the-router.html">The router</a></li>
+        <li><a href="03-load-balancing.html">Load balancing &amp; collapse</a></li>
+        <li><a href="04-capacity-factor.html">Capacity &amp; dropped tokens</a></li>
+        <li><a href="05-the-lineage.html">The lineage</a></li>
+        <li><a href="06-systems-reality.html" aria-current="page">The systems reality</a>
+          <ul class="inchap">
+            <li><a href="#ep">Expert parallelism</a></li>
+            <li><a href="#alltoall">The two all-to-alls</a></li>
+            <li><a href="#cost">What it costs</a></li>
+            <li><a href="#nodes">Why exactly four nodes</a></li>
+            <li><a href="#precision">The float32 island</a></li>
+            <li><a href="#memory">The inference problem</a></li>
+          </ul>
+        </li>
       </ol>
       <p class="navfoot">Every formula copied from the primary paper. Every number
       cited. Blank cells where a paper doesn't report a figure.</p>
@@ -36,46 +50,407 @@
   </nav>
 
   <article>
-    <div class="chapmark"><span class="n">6</span><span class="l">Chapter 6<br>Not written yet</span></div>
-    <h1>The systems reality</h1>
-    <p class="standfirst">The part the architecture papers skip. Your experts don't fit on one GPU, so routing becomes a network operation — and a sparse model has dense-model memory needs.</p>
 
-    <div class="rung mech">
-      <span class="tag">Being written</span>
-      <p>This chapter isn't finished. The book is written one chapter at a time and
-      reviewed before the next one starts, so what ships is checked rather than
-      merely drafted &mdash; every formula copied from the primary paper, every
-      number verified.</p>
-      <p><a href="01-why-moe.html">Chapter 1 is complete and readable now.</a></p>
+  <div class="chapmark"><span class="n">6</span><span class="l">Chapter six<br>Systems</span></div>
+  <h1>When the network becomes the model</h1>
+  <p class="standfirst">Your experts don't fit on one accelerator, so routing stops
+  being arithmetic and becomes a communication problem. This is the chapter the
+  architecture papers skip &mdash; and the one that decides whether any of the previous
+  five were worth it.</p>
+  <p class="byline">
+    <span>~18 min</span>
+    <span>Assumes: chapters <a href="01-why-moe.html">1</a>&ndash;<a href="05-the-lineage.html">5</a></span>
+    <span>Two animations, one exercise</span>
+  </p>
+
+  <p>Everything so far has quietly assumed the model sits somewhere you can reach.
+  It doesn't. DeepSeek-V3's 671B parameters at 8 bytes each would be over five
+  terabytes; even in FP8 it is hundreds of gigabytes against an H800's 80. The experts
+  <em>must</em> be spread across devices. And the instant they are, the router's
+  output stops being an index and becomes a <strong>destination</strong>.</p>
+
+  <h2 id="ep">Expert parallelism</h2>
+
+  <p>You already know data parallelism (same weights, different data) and tensor
+  parallelism (one matrix split across devices). MoE adds a third axis that is
+  peculiar to it:</p>
+
+  <p class="pull"><strong>Expert parallelism:</strong> different <em>experts</em> live
+  on different devices. Nothing is split &mdash; expert 7 sits whole on GPU 3, and if
+  your token wants expert 7, your token must go to GPU 3.</p>
+
+  <p>This is a good deal. Experts are the bulk of the parameters
+  (<a href="01-why-moe.html#params">chapter 1</a>: 97% of an MoE block), they're
+  independent, and they never need to talk to each other. Splitting by expert is the
+  natural cut. The bill arrives at dispatch time.</p>
+
+  <div class="rung feel">
+    <span class="tag">Feel it</span>
+    <p>Tensor parallelism is four people each doing a quarter of every task. Expert
+    parallelism is four specialists in four different buildings &mdash; nobody
+    duplicates work, but every job has to be <em>couriered</em> to the right building
+    and the result couriered back.</p>
+    <p><em>Where the analogy breaks:</em> the couriers all leave at once and nobody
+    starts work until every parcel has arrived. That synchrony is what makes the
+    communication a wall rather than a delay.</p>
+  </div>
+
+  <h2 id="alltoall">The two all-to-alls</h2>
+
+  <p>Each device holds a slice of the batch <em>and</em> a subset of the experts. The
+  tokens on your device mostly want experts that are somewhere else, and the tokens
+  that want <em>your</em> experts are mostly on other devices. So every device must
+  send something to every other device, simultaneously. That collective is an
+  <strong>all-to-all</strong>, and an MoE layer needs two of them.</p>
+
+  <div class="rung research">
+    <span class="tag">Two, and the cleanest source is DeepSeek-V3</span>
+    <p>DeepSeek-V3 &sect;3.2.1 names all four pieces of an MoE layer's work:
+    <em>&ldquo;we divide each chunk into four components: attention, all-to-all
+    dispatch, MLP, and all-to-all combine.&rdquo;</em></p>
+    <p>GShard's Algorithm 2 shows the same thing structurally &mdash; two einsums that
+    flip which dimension is sharded, group&nbsp;&rarr;&nbsp;expert on the way in and
+    expert&nbsp;&rarr;&nbsp;group on the way out.</p>
+    <p><strong>And a correction to the usual phrasing:</strong> it's two all-to-alls
+    per layer <em>per pass</em>. DualPipe splits forward <em>and</em> backward chunks
+    the same way, so a training step pays <strong>four</strong> per MoE layer.
+    Explainers routinely say &ldquo;two per layer&rdquo; and leave the backward pass
+    implicit.</p>
+  </div>
+
+  <figure class="anim" id="anim1">
+    <svg viewBox="0 0 760 380" role="img" aria-label="Four GPUs each holding two experts and a slice of the batch. Tokens are dispatched by an all-to-all collective to whichever GPU holds their chosen expert, the experts compute, and a second all-to-all returns each result to the GPU the token came from.">
+      <defs>
+        <marker id="s1a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="var(--router)"/>
+        </marker>
+      </defs>
+      <g id="s1-gpus"></g>
+      <g id="s1-wires"></g>
+      <line x1="40" y1="330" x2="720" y2="330" stroke="var(--rule)"/>
+      <text id="s1-v1" x="40" y="352" font-family="var(--sans)" font-size="12" font-weight="700"></text>
+      <text id="s1-v2" x="40" y="372" font-family="var(--sans)" font-size="11.5" fill="var(--ink-soft)"></text>
+    </svg>
+  </figure>
+
+  <h2 id="cost">What it actually costs</h2>
+
+  <p>GShard measured this, and the numbers are the best argument in the literature for
+  why expert count isn't free.</p>
+
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>Measure</th><th class="num">128 experts</th><th class="num">2048 experts</th></tr></thead>
+    <tbody>
+      <tr><td>All-to-all (dispatch + combine) as a share of layer time</td><td class="num">16%</td><td class="num"><strong>36%</strong></td></tr>
+      <tr><td>Fraction of roofline performance achieved</td><td class="num">&gt;70%</td><td class="num"><strong>48%</strong></td></tr>
+      <tr><td>Gating overhead (ArgMax, Cumsum)</td><td class="num">negligible</td><td class="num">&lt;10%</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>Going 16&times; wider in experts, the all-to-all share of runtime more than
+  doubles and hardware utilisation falls from over 70% of roofline to under half. This
+  is the systems half of the story <a href="05-the-lineage.html#2021">chapter 5</a>
+  told from the modelling side: Switch-C's 2048 experts lost to Switch-XXL's 64 partly
+  because of what you're looking at here.</p>
+
+  <div class="rung math">
+    <span class="tag">The scaling law, and its fine print</span>
+    <p>GShard derives all-to-all cost on their cluster as
+    <strong>O(&radic;D)</strong> in the number of partitions
+    <span class="v">D</span> &mdash; growing partitions 128&times; (16&nbsp;&rarr;&nbsp;2048)
+    increased all-to-all time only <strong>9&times;</strong>, and
+    &radic;128&nbsp;&asymp;&nbsp;11.3, so the fit is good.</p>
+    <p>But read the qualifier: the derivation is <em>&ldquo;on our 2D TPU
+    cluster,&rdquo;</em> from <span class="v">h</span> = O(&radic;D) average hops on a
+    2D mesh with <span class="v">l</span> = O(D) links. <strong>It is a property of
+    that topology, not a law of nature</strong> &mdash; on a fat-tree GPU cluster the
+    hop-count assumption doesn't hold. Compare AllReduce on the same hardware, which
+    the paper measures as roughly <strong>O(1)</strong>, independent of device count.
+    All-to-all is the expensive collective, and MoE is the architecture that needs
+    it.</p>
+  </div>
+
+  <p>How bad is it left alone? DeepSeek-V3 is blunt: cross-node expert parallelism
+  gives <em>&ldquo;an inefficient computation-to-communication ratio of approximately
+  1:1&rdquo;</em>. Half your cluster-time moving bytes.</p>
+
+  <p>Their fix, DualPipe, overlaps the communication with computation so that
+  <em>&ldquo;both all-to-all and PP communication can be fully hidden during
+  execution.&rdquo;</em> Hidden, not eliminated &mdash; and not free either: the
+  scheme keeps <strong>two copies of the model parameters</strong>, which the paper
+  justifies only <em>&ldquo;since we use a large EP size during training.&rdquo;</em></p>
+
+  <h2 id="nodes">Why exactly four nodes</h2>
+
+  <p>DeepSeek-V3 limits each token to at most <strong>4 nodes</strong>. This gets
+  described everywhere as a way of limiting how many experts a token uses. That has
+  the mechanism backwards &mdash; the expert count is already fixed at 8 by top-k. The
+  constraint is about <em>bandwidth</em>.</p>
+
+  <div class="eq">
+    <span class="label">The ratio that sets M = 4</span>
+    <div class="body">
+      <span class="frac"><span><span class="hl-active">NVLink</span> 160 GB/s</span><span><span class="hl-idle">InfiniBand</span> 50 GB/s</span></span>
+      &nbsp;<span class="op">&asymp;</span>&nbsp;
+      <span class="hl-router">3.2</span>
     </div>
+    <div class="say">Inside a node, GPUs talk over NVLink at roughly <b>3.2&times;</b>
+    the bandwidth of the InfiniBand fabric between nodes. So the design question isn't
+    "how many experts?" but <b>"how many times must this token cross the slow
+    link?"</b></div>
+  </div>
 
-    <h2>What this chapter will cover</h2>
+  <p>The routing then works in two hops. A token crosses InfiniBand <em>once per
+  target node</em>, landing on the GPU with the same in-node index, then reaches its
+  actual expert over the much faster NVLink. Cap the nodes at 4 and you cap the
+  expensive traffic at 4 crossings regardless of which 8 experts were chosen.</p>
+
+  <p>And the 3.2 tells you the headroom: the paper notes that its 8 routed experts
+  could grow to <strong>13</strong> (4&nbsp;&times;&nbsp;3.2) <em>at unchanged
+  communication cost</em>. The architecture is sized to the interconnect, not the
+  other way round.</p>
+
+  <div class="rung gotcha">
+    <span class="tag">How the four nodes get picked</span>
+    <p>Not by "the node with the best single expert," and not by average affinity.
+    Nodes are ranked by <strong>the sum of the highest
+    K<sub>r</sub>/M affinity scores of the experts on each node</strong> &mdash; with
+    K<sub>r</sub>&nbsp;=&nbsp;8 and M&nbsp;=&nbsp;4, that's the sum of each node's
+    <em>top two</em> experts. It asks "which nodes can give me a good pair?", which is
+    the right question when you'll be taking roughly two experts per node.</p>
+  </div>
+
+  <h2 id="precision">The float32 island</h2>
+
+  <p><a href="03-load-balancing.html#zloss">Chapter 3</a> covered why routers are
+  numerically fragile in bfloat16. Switch's fix is more interesting than "use float32,"
+  and the reason is communication.</p>
+
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Precision</th><th class="num">Quality (neg. log perp.)</th><th class="num">Speed (examples/sec)</th></tr></thead>
+      <tbody>
+        <tr><td>float32 throughout</td><td class="num">&minus;1.718</td><td class="num">1160</td></tr>
+        <tr><td>bfloat16 throughout</td><td class="num" style="color:var(--danger)"><strong>&minus;3.780 &nbsp;diverged</strong></td><td class="num">1390</td></tr>
+        <tr><td><strong>Selective precision</strong></td><td class="num"><strong>&minus;1.716</strong></td><td class="num"><strong>1390</strong></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p style="font-family:var(--sans);font-size:0.8rem;color:var(--ink-faint)">
+  Switch Transformers, selective precision ablation, Switch-Base with 32 experts.</p>
+
+  <p>Full bfloat16 <strong>diverged</strong>. Full float32 trained but ran 17% slower.
+  Selective precision matched float32's quality at bfloat16's speed &mdash; strictly
+  the best of both, which almost never happens.</p>
+
+  <div class="rung mech">
+    <span class="tag">The trick is where the island ends</span>
+    <p>Switch casts <em>&ldquo;the router input to float32 precision&rdquo;</em>, and
+    critically: <em>&ldquo;the float32 precision is only used within the body of the
+    router function&mdash;on computations local to that device. Because the resulting
+    dispatch and combine tensors are recast to bfloat16 precision at the end of the
+    function, no expensive float32 tensors are broadcast through all-to-all
+    communication operations.&rdquo;</em></p>
+    <p>So the float32 region is deliberately drawn to end <em>before the collective</em>.
+    You get exact softmax arithmetic where the numerics are fragile, and half-width
+    tensors on the wire where the bandwidth is scarce. It is a numerics fix and a
+    communication optimisation in the same three lines.</p>
+  </div>
+
+  <h2 id="memory">The inference problem nobody advertises</h2>
+
+  <p>Now the reckoning that <a href="01-why-moe.html">chapter 1</a>'s hospital analogy
+  promised: <em>the hospital still pays every doctor's salary</em>.</p>
+
+  <p>At inference, a sparse model has the <strong>memory footprint of a dense model
+  its total size</strong> and the <strong>arithmetic of a dense model its active
+  size</strong>. Mixtral needs all 46.7B parameters resident, because the router may
+  ask for any expert on the very next token &mdash; while doing 12.9B parameters of
+  work.</p>
+
+  <p>That combination is precisely the shape of a <strong>memory-bandwidth-bound</strong>
+  workload. Generating one token at a time means reading enormous weight matrices to
+  perform a small amount of arithmetic per byte read. The GPU is not computing; it is
+  waiting for memory.</p>
+
+  <div class="rung math">
+    <span class="tag">Labelled honestly</span>
+    <p>That last paragraph is an <strong>arithmetic-intensity argument</strong>, not a
+    line I can quote from one of these papers. It follows from the ratio of bytes moved
+    to FLOPs performed at batch size 1, and it is thoroughly established for dense
+    LLM decoding &mdash; MoE inherits and worsens it, because the bytes grow with
+    <em>total</em> parameters while the FLOPs track <em>active</em> ones. But this book
+    distinguishes what a paper says from what follows, and this is the latter.</p>
+    <p>The related fact I <em>can</em> source is GShard's measurement that dense
+    feed-forward layers hit <em>&ldquo;&gt;85% peak FLOPS&rdquo;</em> while attention
+    reaches only <em>&gt;30%</em>, being <em>&ldquo;bounded by memory
+    bandwidth&rdquo;</em> &mdash; the same wall, measured on the same hardware.</p>
+  </div>
+
+  <p>Which yields the honest summary of the entire architecture:</p>
+
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>Resource</th><th>Scales with</th><th>Verdict for MoE</th></tr></thead>
+    <tbody>
+      <tr><td>Training compute</td><td>Active parameters</td><td style="color:var(--ok)"><strong>Big win</strong> &mdash; the whole point</td></tr>
+      <tr><td>Model quality</td><td>Total parameters</td><td style="color:var(--ok)"><strong>Win</strong> &mdash; capacity without the FLOPs</td></tr>
+      <tr><td>Inference arithmetic</td><td>Active parameters</td><td style="color:var(--ok)"><strong>Win</strong></td></tr>
+      <tr><td>Inference memory</td><td>Total parameters</td><td style="color:var(--danger)"><strong>Loss</strong> &mdash; no discount at all</td></tr>
+      <tr><td>Interconnect traffic</td><td>Experts &times; devices</td><td style="color:var(--danger)"><strong>Loss</strong> &mdash; two all-to-alls per pass</td></tr>
+      <tr><td>Engineering complexity</td><td>&mdash;</td><td style="color:var(--danger)"><strong>Loss</strong> &mdash; four chapters of it</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>MoE is a bargain that trades <strong>memory and network for compute</strong>. On
+  a training cluster, where compute is the binding constraint and the interconnect is
+  excellent, that trade is superb &mdash; DeepSeek-V3 trained a 671B model for
+  <strong>2.788M H800 GPU-hours</strong>, about <strong>$5.576M</strong> at $2/GPU-hour
+  by the paper's own reckoning. On a single GPU serving one user, where memory is the
+  binding constraint, the same trade is bad.</p>
+
+  <div class="rung research">
+    <span class="tag">How the frontier actually serves it</span>
+    <p>DeepSeek-V3's serving stack is a different machine from its training stack. No
+    tensor parallelism in <em>training</em> at all &mdash; <em>&ldquo;we meticulously
+    optimize the memory footprint&hellip; thereby enabling us to train DeepSeek-V3
+    without using costly Tensor Parallelism&rdquo;</em> &mdash; it trains as
+    PP16&nbsp;&times;&nbsp;EP64&nbsp;&times;&nbsp;ZeRO-1 DP, and serves as
+    TP4/DP8/EP32 when prefilling and TP4/DP80/<strong>EP320</strong> when decoding.</p>
+    <p>Look at that decode configuration. <strong>EP320</strong> &mdash; the experts
+    are spread across hundreds of GPUs, so that the aggregate memory bandwidth is large
+    enough to feed one token's worth of work. That is what "memory-bound" looks like
+    when someone with a cluster solves it.</p>
+  </div>
+
+  <figure class="anim" id="anim2">
+    <svg viewBox="0 0 760 300" role="img" aria-label="A comparison of what scales with active parameters versus total parameters. Compute, at 12.9 billion, tracks the active count and is the win. Memory, at 46.7 billion, tracks the total and gets no discount at all.">
+      <g id="s2-body"></g>
+    </svg>
+  </figure>
+
+  <div class="problem">
+    <h4>Work it yourself</h4>
+    <p>You want to serve <strong>Mixtral 8&times;7B</strong> (46.7B total, 12.9B
+    active) in FP16 on a single <strong>A100-80GB</strong>.</p>
+    <p><strong>(a)</strong> Does it fit? Show the arithmetic.<br>
+    <strong>(b)</strong> A colleague argues that since only 13B parameters are active,
+    you should be able to serve it in roughly the memory of a 13B dense model, loading
+    experts on demand. What's wrong with that?<br>
+    <strong>(c)</strong> Using chapter 2's finding that ~63&ndash;67% of consecutive
+    tokens route to the same expert at layer 15, say whether on-demand loading is
+    hopeless or merely difficult &mdash; and what you'd measure to decide.</p>
+    <details>
+      <summary>Show the answer</summary>
+      <p><strong>(a)</strong> 46.7B parameters &times; 2 bytes =
+      <strong>93.4 GB</strong> of weights alone, before any KV cache or activations.
+      An 80GB A100 <strong>cannot hold it</strong>. You need two, or quantisation —
+      which is why Mixtral is so commonly served at 4-bit (~23GB, comfortable).</p>
+      <p><strong>(b)</strong> Two problems. First, <em>which</em> 13B is active changes
+      every token and every layer — the active set isn't a fixed subset you can
+      preload, it's a different 2-of-8 per layer per token. Second, PCIe transfer is
+      roughly an order of magnitude slower than HBM; streaming an expert in to use it
+      once costs far more time than the arithmetic it enables. You'd convert a
+      memory-bound problem into a much worse PCIe-bound one.</p>
+      <p><strong>(c)</strong> Merely difficult, and the locality is exactly why. If
+      63–67% of consecutive tokens reuse the same expert at a given layer, then an
+      expert you just paged in has a roughly two-in-three chance of being wanted again
+      next token — a cache hit rate that makes an LRU expert cache genuinely viable,
+      which is the basis of real offloading systems.</p>
+      <p>What you'd measure: <strong>the hit rate of a fixed-size expert cache under a
+      real request trace</strong>, per layer — because chapter 2's figure is for layer
+      15 specifically, and locality varied by depth. Then compare the amortised
+      transfer cost per token against the memory you save. The decision is empirical,
+      and the measurement is cheap.</p>
+    </details>
+  </div>
+
+  <div class="takeaway">
+    <h4>What you can now do</h4>
     <ul>
-      <li>Expert parallelism, and how it composes with tensor and data parallelism</li>
-      <li>The two all-to-all collectives per MoE layer, in the critical path</li>
-      <li>Why MoE inference is memory-bandwidth-bound, not compute-bound</li>
-      <li>Batch size and expert hit rate — why MoE loves big batches</li>
-      <li>Offloading, and why MoE is a training-cost win but an inference-memory loss</li>
+      <li>Explain expert parallelism and how it differs from tensor and data
+        parallelism.</li>
+      <li>Name the two all-to-alls, and know a training step pays four per MoE
+        layer.</li>
+      <li>Quote what growing from 128 to 2048 experts does to utilisation &mdash; and
+        why GShard's O(&radic;D) is topology-specific.</li>
+      <li>Explain why DeepSeek-V3 caps tokens at 4 nodes, in terms of the 3.2&times;
+        NVLink-to-InfiniBand ratio rather than expert count.</li>
+      <li>Say why Switch's float32 island ends before the collective.</li>
+      <li>Explain why MoE inference is memory-bound &mdash; and flag that as an
+        arithmetic-intensity argument rather than a quotation.</li>
     </ul>
+  </div>
 
-    <p>Want to be told when it lands? <a href="https://github.com/Noman654/moe-explained">Watch
-    the repo on GitHub</a> &mdash; releases and commits show up there first. Spotted an
-    error in a chapter that <em>is</em> published, or want something covered here?
-    <a href="https://github.com/Noman654/moe-explained/issues/new">Open an issue</a>.</p>
+  <hr>
 
-    <nav class="seriesnav">
-      <a href="05-the-lineage.html"><span class="k">Previous chapter</span><span class="t"><strong>5 &middot; The lineage: Shazeer → Switch → DeepSeek</strong></span></a>
-      <a href="../index.html"><span class="k">All chapters</span>
-      <span class="t"><strong>Contents</strong></span></a>
-    </nav>
+  <h3>Where that leaves us</h3>
 
-    <section class="comments">
-      <h2>What should this chapter cover?</h2>
-      <p class="lede">It isn't written yet, which makes this the useful moment to
-      speak up. If there's a question you want answered here, or something every
-      other explanation of this topic got wrong, say so and I'll write to it.</p>
-      <div id="giscus-mount"></div>
-    </section>
+  <p>Six chapters ago, the observation was that a language model does identical
+  arithmetic for &ldquo;the&rdquo; and for &ldquo;photosynthesis.&rdquo; Everything
+  since has been the consequences of trying to fix that.</p>
+
+  <p>You can break the weld between parameters and compute
+  (<a href="01-why-moe.html">1</a>), but then you need something to choose, and the
+  choice must be discrete yet differentiable (<a href="02-the-router.html">2</a>). The
+  chooser plays favourites, so you add a loss that watches it
+  (<a href="03-load-balancing.html">3</a>). The hardware wants fixed shapes, so you add
+  buffers, and tokens fall out of them
+  (<a href="04-capacity-factor.html">4</a>). Seven years of arguing sharpen each piece
+  (<a href="05-the-lineage.html">5</a>). And none of it fits on one machine, so the
+  network becomes part of the model (6).</p>
+
+  <p>Not one of those steps is exotic. Each is the obvious response to the previous
+  one's failure. That's what makes MoE learnable rather than merely memorisable
+  &mdash; and it's why, when the next paper lands, you'll be able to read it as a
+  reply to something rather than as a novelty.</p>
+
+  <nav class="seriesnav">
+    <a href="05-the-lineage.html">
+      <span class="k">Previous chapter</span>
+      <span class="t"><strong>5 &middot; Seven years of arguing</strong></span>
+    </a>
+    <a href="../index.html">
+      <span class="k">You've finished the book</span>
+      <span class="t"><strong>Back to contents</strong></span>
+    </a>
+  </nav>
+
+  <h3>Sources for this chapter</h3>
+  <ol class="refs">
+    <li>Lepikhin et al. (2020). <a href="https://arxiv.org/abs/2006.16668"><em>GShard</em></a>.
+      &mdash; Algorithm 2's two resharding einsums; all-to-all at 16%/36% of layer
+      time; roofline &gt;70%/48%; O(&radic;D) on a 2D TPU cluster; AllReduce O(1);
+      &gt;85% peak FLOPS for FFN vs &gt;30% for memory-bound attention.</li>
+    <li>Fedus, Zoph &amp; Shazeer (2021). <a href="https://arxiv.org/abs/2101.03961"><em>Switch
+      Transformers</em></a>. &mdash; selective precision ablation and the float32-island
+      rationale; Switch-C expert-parallel-only design.</li>
+    <li>DeepSeek-AI (2024). <a href="https://arxiv.org/abs/2412.19437"><em>DeepSeek-V3</em></a>.
+      &mdash; &sect;3.2.1 the four chunk components; DualPipe and the 1:1
+      computation-to-communication ratio; the 160 vs 50 GB/s ratio and M=4; node
+      ranking by top-K<sub>r</sub>/M affinity sums; PP16&times;EP64 training and
+      TP4/DP80/EP320 decoding; 2.788M H800 GPU-hours.</li>
+  </ol>
+
+  <section class="comments">
+    <h2>Comments &amp; corrections</h2>
+    <p class="lede">You've reached the end of the book. If it helped, or if a chapter
+    lost you somewhere, that's genuinely useful to hear &mdash; it tells me what to
+    rewrite.</p>
+    <div class="fixit">
+      <span><b>Found an error?</b>
+      Every formula here was copied from the primary paper and every number verified.
+      If something is wrong, that's a bug &mdash;
+      <a href="https://github.com/Noman654/moe-explained/issues/new?title=Chapter%206%3A%20correction&amp;body=Where%20(section%20or%20equation)%3A%0A%0AWhat%27s%20wrong%3A%0A%0ASource%20that%20says%20otherwise%3A%0A">open
+      an issue</a> and I'll fix it and say so.</span>
+    </div>
+    <div id="giscus-mount"></div>
+  </section>
+
   </article>
 </div>
 
@@ -85,6 +460,199 @@
   <a href="https://github.com/Noman654/moe-explained">Source</a>
 </div></footer>
 
+<script src="../assets/anim.js"></script>
 <script src="../assets/comments.js"></script>
+<script>
+(function () {
+  var bar = document.getElementById('prog'), art = document.querySelector('article');
+  function upd() {
+    var h = art.offsetHeight - window.innerHeight;
+    var p = h > 0 ? (window.scrollY - art.offsetTop) / h : 0;
+    bar.style.width = Math.max(0, Math.min(1, p)) * 100 + '%';
+  }
+  addEventListener('scroll', upd, { passive: true });
+  addEventListener('resize', upd); upd();
+})();
+
+/* ============ ANIMATION 1 — dispatch, compute, combine ==================== */
+(function () {
+  var SVG = 'http://www.w3.org/2000/svg';
+  var gpus = document.getElementById('s1-gpus'), wires = document.getElementById('s1-wires');
+  var NG = 4, GW = 158, GX = 40, GY = 80;
+  // token t on gpu g wants an expert living on gpu WANT[g]
+  var WANT = [2, 0, 3, 1];
+  var boxes = [];
+
+  for (var i = 0; i < NG; i++) {
+    var x = GX + i * (GW + 16);
+    var r = document.createElementNS(SVG, 'rect');
+    r.setAttribute('x', x); r.setAttribute('y', GY);
+    r.setAttribute('width', GW); r.setAttribute('height', 120);
+    r.setAttribute('rx', 8); r.setAttribute('fill', 'var(--bg-sunken)');
+    r.setAttribute('stroke', 'var(--rule-strong)');
+    gpus.appendChild(r);
+    var lb = document.createElementNS(SVG, 'text');
+    lb.setAttribute('x', x + GW / 2); lb.setAttribute('y', GY + 18);
+    lb.setAttribute('text-anchor', 'middle'); lb.setAttribute('font-family', 'var(--sans)');
+    lb.setAttribute('font-size', '11'); lb.setAttribute('font-weight', '700');
+    lb.setAttribute('fill', 'var(--ink-faint)');
+    lb.textContent = 'GPU ' + i;
+    gpus.appendChild(lb);
+    var ex = document.createElementNS(SVG, 'text');
+    ex.setAttribute('x', x + GW / 2); ex.setAttribute('y', GY + 34);
+    ex.setAttribute('text-anchor', 'middle'); ex.setAttribute('font-family', 'var(--mono)');
+    ex.setAttribute('font-size', '9.5'); ex.setAttribute('fill', 'var(--ink-faint)');
+    ex.textContent = 'experts E' + (2 * i + 1) + ', E' + (2 * i + 2);
+    gpus.appendChild(ex);
+
+    // the expert slab
+    var slab = document.createElementNS(SVG, 'rect');
+    slab.setAttribute('x', x + 18); slab.setAttribute('y', GY + 46);
+    slab.setAttribute('width', GW - 36); slab.setAttribute('height', 26);
+    slab.setAttribute('rx', 4); slab.setAttribute('class', 'node');
+    gpus.appendChild(slab);
+
+    // the token
+    var tok = document.createElementNS(SVG, 'rect');
+    tok.setAttribute('x', x + GW / 2 - 22); tok.setAttribute('y', GY + 84);
+    tok.setAttribute('width', 44); tok.setAttribute('height', 22);
+    tok.setAttribute('rx', 4); tok.setAttribute('class', 'node');
+    gpus.appendChild(tok);
+    var tt = document.createElementNS(SVG, 'text');
+    tt.setAttribute('x', x + GW / 2); tt.setAttribute('y', GY + 99);
+    tt.setAttribute('text-anchor', 'middle'); tt.setAttribute('font-family', 'var(--mono)');
+    tt.setAttribute('font-size', '10'); tt.setAttribute('class', 'node');
+    tt.textContent = 't' + i;
+    gpus.appendChild(tt);
+
+    boxes.push({ x: x, slab: slab, tok: tok, tt: tt });
+  }
+
+  // curved wires from each gpu to its destination
+  var arcs = [];
+  for (var g = 0; g < NG; g++) {
+    var from = boxes[g].x + GW / 2, to = boxes[WANT[g]].x + GW / 2;
+    var p = document.createElementNS(SVG, 'path');
+    var mid = (from + to) / 2, lift = 250 + Math.abs(from - to) * 0.06;
+    p.setAttribute('d', 'M ' + from + ' ' + (GY + 108) + ' Q ' + mid + ' ' + lift + ' ' + to + ' ' + (GY + 108));
+    p.setAttribute('fill', 'none'); p.setAttribute('stroke', 'var(--router)');
+    p.setAttribute('stroke-width', '2'); p.setAttribute('marker-end', 'url(#s1a)');
+    p.setAttribute('class', 'node');
+    wires.appendChild(p);
+    arcs.push(p);
+  }
+
+  var STEPS = [
+    { caption: 'Four GPUs. Each holds <b>two experts</b> and a slice of the batch. Nothing is split — expert 5 lives whole on GPU 2.' },
+    { caption: 'Each token\'s router picks an expert. Almost none of them are local: t0 wants an expert on GPU 2, t1 wants GPU 0, and so on.' },
+    { caption: '<b>All-to-all #1 — dispatch.</b> Every GPU sends tokens to every other GPU at once. Nobody proceeds until all parcels land.' },
+    { caption: 'Now the experts run. This is the only part of the layer that is actual arithmetic, and it is local — no communication at all.' },
+    { caption: '<b>All-to-all #2 — combine.</b> Every result is shipped back to the GPU its token came from, so the residual stream stays where it belongs.' },
+    { caption: 'Two collectives per MoE layer, per pass. With a backward pass, <b>four per layer per training step</b> — and at 2048 experts GShard measured this at 36% of layer time.' }
+  ];
+
+  MoEAnim.create({
+    mount: document.getElementById('anim1'), steps: STEPS, interval: 2400,
+    render: function (s) {
+      boxes.forEach(function (b, i) {
+        var running = s === 3;
+        b.slab.setAttribute('fill', running ? 'var(--active-soft)' : 'var(--idle-soft)');
+        b.slab.setAttribute('stroke', running ? 'var(--active)' : 'var(--idle)');
+        b.slab.setAttribute('stroke-width', running ? 2 : 1);
+        var home = s < 2 || s >= 4;
+        b.tok.setAttribute('fill', s >= 1 ? 'var(--router-soft)' : 'var(--bg-raised)');
+        b.tok.setAttribute('stroke', s >= 1 ? 'var(--router)' : 'var(--rule-strong)');
+        b.tt.setAttribute('fill', s >= 1 ? 'var(--router)' : 'var(--ink-soft)');
+        b.tt.textContent = (s >= 2 && s < 4) ? 't' + WANT.indexOf(i) : 't' + i;
+        b.tok.classList.toggle('fade', s === 2 || s === 4);
+      });
+      arcs.forEach(function (a) { a.classList.toggle('hide', !(s === 2 || s === 4)); });
+      var v1 = document.getElementById('s1-v1'), v2 = document.getElementById('s1-v2');
+      if (s >= 5) {
+        v1.textContent = '2 all-to-alls per layer per pass  ·  4 per layer per training step (forward + backward)';
+        v1.setAttribute('fill', 'var(--danger)');
+        v2.textContent = 'GShard: 16% of layer time at 128 experts, 36% at 2048. Roofline utilisation falls from >70% to 48%.';
+      } else if (s === 3) {
+        v1.textContent = 'The only local step. Everything either side of it is network.';
+        v1.setAttribute('fill', 'var(--ok)'); v2.textContent = '';
+      } else { v1.textContent = ''; v2.textContent = ''; }
+    }
+  });
+})();
+
+/* ============ ANIMATION 2 — what scales with what ======================== */
+(function () {
+  var SVG = 'http://www.w3.org/2000/svg';
+  var body = document.getElementById('s2-body');
+  var ROWS = [
+    { k: 'Training compute',    v: 12.9, of: 'active', good: true,  note: 'tracks ACTIVE — 12.9B' },
+    { k: 'Inference arithmetic', v: 12.9, of: 'active', good: true,  note: 'tracks ACTIVE — 12.9B' },
+    { k: 'Model quality',        v: 46.7, of: 'total',  good: true,  note: 'tracks TOTAL — 46.7B (this is the win)' },
+    { k: 'Inference memory',     v: 46.7, of: 'total',  good: false, note: 'tracks TOTAL — 46.7B (this is the bill)' }
+  ];
+  var X = 210, W = 440, Y0 = 40, H = 44;
+
+  var bars = [];
+  ROWS.forEach(function (r, i) {
+    var y = Y0 + i * (H + 14);
+    var lb = document.createElementNS(SVG, 'text');
+    lb.setAttribute('x', X - 14); lb.setAttribute('y', y + 26);
+    lb.setAttribute('text-anchor', 'end'); lb.setAttribute('font-family', 'var(--sans)');
+    lb.setAttribute('font-size', '12'); lb.setAttribute('font-weight', '700');
+    lb.setAttribute('fill', 'currentColor'); lb.textContent = r.k;
+    body.appendChild(lb);
+    var track = document.createElementNS(SVG, 'rect');
+    track.setAttribute('x', X); track.setAttribute('y', y); track.setAttribute('width', W);
+    track.setAttribute('height', H - 8); track.setAttribute('rx', 4);
+    track.setAttribute('fill', 'var(--bg-sunken)'); track.setAttribute('stroke', 'var(--rule)');
+    body.appendChild(track);
+    var bar = document.createElementNS(SVG, 'rect');
+    bar.setAttribute('x', X); bar.setAttribute('y', y); bar.setAttribute('width', 0);
+    bar.setAttribute('height', H - 8); bar.setAttribute('rx', 4);
+    bar.setAttribute('class', 'node');
+    body.appendChild(bar);
+    var nt = document.createElementNS(SVG, 'text');
+    nt.setAttribute('x', X + 12); nt.setAttribute('y', y + 24);
+    nt.setAttribute('font-family', 'var(--sans)'); nt.setAttribute('font-size', '11.5');
+    nt.setAttribute('font-weight', '700'); nt.setAttribute('class', 'node');
+    body.appendChild(nt);
+    bars.push({ bar: bar, nt: nt, r: r });
+  });
+
+  var verdict = document.createElementNS(SVG, 'text');
+  verdict.setAttribute('x', X); verdict.setAttribute('y', 282);
+  verdict.setAttribute('font-family', 'var(--sans)'); verdict.setAttribute('font-size', '12.5');
+  verdict.setAttribute('font-weight', '700');
+  body.appendChild(verdict);
+
+  var STEPS = [
+    { caption: 'Four resources, one model: Mixtral 8×7B. The question for each is whether it scales with the <b>active</b> parameter count or the <b>total</b> one.' },
+    { caption: 'Compute — training and inference alike — tracks the <b>active</b> 12.9B. This is the entire promise of chapter 1, delivered.' },
+    { caption: 'Model quality tracks the <b>total</b> 46.7B. Also good: you get the capacity of a 47B model.' },
+    { caption: 'And inference memory also tracks the <b>total</b> 46.7B — because the router might want any expert on the next token. Here the same fact stops being a feature.' },
+    { caption: 'MoE trades <b>memory and network for compute</b>. On a training cluster that is a superb bargain. On one GPU serving one user, it is not.' }
+  ];
+
+  MoEAnim.create({
+    mount: document.getElementById('anim2'), steps: STEPS, interval: 2400,
+    render: function (s) {
+      bars.forEach(function (b, i) {
+        var show = (s >= 1 && b.r.of === 'active' && i < 2) ||
+                   (s >= 2 && i === 2) || (s >= 3 && i === 3);
+        var w = show ? b.r.v / 46.7 * 440 : 0;
+        b.bar.setAttribute('width', w);
+        var bad = (i === 3 && s >= 3);
+        b.bar.setAttribute('fill', bad ? 'var(--danger)' : (b.r.of === 'active' ? 'var(--ok)' : 'var(--active)'));
+        b.nt.classList.toggle('hide', !show);
+        b.nt.setAttribute('fill', 'var(--bg)');
+        b.nt.textContent = show ? b.r.note : '';
+      });
+      verdict.setAttribute('fill', s >= 4 ? 'var(--danger)' : 'transparent');
+      verdict.textContent = s >= 4 ? 'You buy compute like a 13B model and RAM like a 47B one.' : '';
+    }
+  });
+})();
+</script>
+
 </body>
 </html>
