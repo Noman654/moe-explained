@@ -1,33 +1,47 @@
 <!doctype html>
 <html lang="en">
-<!-- generated-stub -->
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Load balancing, and why experts collapse — MoE, Explained ch.3</title>
-<meta name="description" content="Chapter 3 of MoE, Explained. Being written.">
+<title>The loss that watches the router — MoE, Explained ch.3</title>
+<meta name="description" content="Expert collapse, the most misunderstood equation in MoE, and why f_i · P_i works when neither factor alone does.">
 <link rel="stylesheet" href="../assets/moe.css">
 </head>
 <body>
 
+<div class="progressrail" aria-hidden="true"><span id="prog"></span></div>
+
 <header class="masthead">
   <div class="wrap">
     <a class="brand" href="../index.html">MoE<em>,</em> Explained</a>
-    <nav><a href="../index.html">Contents</a></nav>
+    <nav>
+      <a href="../index.html">Contents</a>
+      <a href="04-capacity-factor.html">Next: Capacity &rarr;</a>
+    </nav>
   </div>
 </header>
 
 <div class="book">
+
   <nav class="booknav" aria-label="Table of contents">
     <details open>
       <summary>Contents</summary>
       <p class="navtitle">Chapters</p>
       <ol>
         <li><a href="01-why-moe.html">Every token pays full price</a></li>
-        <li><a class="soon" href="02-the-router.html">The router</a></li>
-        <li><a aria-current="page" href="03-load-balancing.html">Load balancing, and why experts collapse</a></li>
-        <li><a class="soon" href="04-capacity-factor.html">Capacity, and the tokens thrown away</a></li>
-        <li><a class="soon" href="05-the-lineage.html">The lineage: Shazeer → Switch → DeepSeek</a></li>
+        <li><a href="02-the-router.html">The router</a></li>
+        <li><a href="03-load-balancing.html" aria-current="page">Load balancing &amp; collapse</a>
+          <ul class="inchap">
+            <li><a href="#silent">The failure that doesn't crash</a></li>
+            <li><a href="#watch">Watch it collapse</a></li>
+            <li><a href="#naive">Two fixes that don't work</a></li>
+            <li><a href="#product">Why f&middot;P works</a></li>
+            <li><a href="#zloss">The z-loss and bfloat16</a></li>
+            <li><a href="#free">Deleting the loss entirely</a></li>
+          </ul>
+        </li>
+        <li><a class="soon" href="04-capacity-factor.html">Capacity &amp; dropped tokens</a></li>
+        <li><a class="soon" href="05-the-lineage.html">The lineage</a></li>
         <li><a class="soon" href="06-systems-reality.html">The systems reality</a></li>
       </ol>
       <p class="navfoot">Every formula copied from the primary paper. Every number
@@ -36,46 +50,429 @@
   </nav>
 
   <article>
-    <div class="chapmark"><span class="n">3</span><span class="l">Chapter 3<br>Not written yet</span></div>
-    <h1>Load balancing, and why experts collapse</h1>
-    <p class="standfirst">Left alone, a router picks favourites and the rich get richer. You watched it happen in chapter 1. This is the loss term that stops it — the most misunderstood equation in MoE.</p>
 
-    <div class="rung mech">
-      <span class="tag">Being written</span>
-      <p>This chapter isn't finished. The book is written one chapter at a time and
-      reviewed before the next one starts, so what ships is checked rather than
-      merely drafted &mdash; every formula copied from the primary paper, every
-      number verified.</p>
-      <p><a href="01-why-moe.html">Chapter 1 is complete and readable now.</a></p>
+  <div class="chapmark"><span class="n">3</span><span class="l">Chapter three<br>Load balancing</span></div>
+  <h1>The loss that watches the router</h1>
+  <p class="standfirst">Left alone, a router picks favourites and the rich get richer
+  until most of your model is dead weight. The fix is four symbols long and almost
+  everyone explains it wrong &mdash; including, for a while, me.</p>
+  <p class="byline">
+    <span>~18 min</span>
+    <span>Assumes: <a href="02-the-router.html">chapter 2</a></span>
+    <span>Two animations, one exercise</span>
+  </p>
+
+  <h2 id="silent">The failure that doesn't crash</h2>
+
+  <p>You have met this problem twice already. In
+  <a href="01-why-moe.html#pertoken">chapter 1</a> you watched twelve tokens route
+  through eight experts and end with E4 taking ten of them and E8 taking none. In
+  <a href="02-the-router.html">chapter 2</a>'s exercise you found the reason nothing
+  objected: the router's <em>gates</em> are smooth, but its <em>dispatch</em> is a
+  cliff. You are in the top-k or you get nothing, and no term in the loss has any
+  opinion about which.</p>
+
+  <p>Now consider what that costs. Mixtral holds 46.7B parameters and touches 12.9B
+  per token. If three of its eight experts absorb nearly all the traffic, you are
+  paying to store, shard, and move <strong>45.1B parameters of experts</strong> while
+  getting the representational benefit of roughly a third of them. You bought a
+  sparse model and got an expensive dense one.</p>
+
+  <div class="rung gotcha">
+    <span class="tag">Why it compounds</span>
+    <p>Collapse is not a stumble the model recovers from. It is a <strong>positive
+    feedback loop</strong>:</p>
+    <p>An expert that wins slightly more often &rarr; runs more often &rarr;
+    <em>receives more gradient</em> &rarr; becomes genuinely better at the tokens it
+    sees &rarr; earns a higher router score &rarr; wins more often still.</p>
+    <p>Meanwhile the loser runs rarely, receives almost no gradient, stays near its
+    random initialisation, and therefore <em>deserves</em> its low score. The router
+    isn't malfunctioning. It is correctly identifying that expert 8 is bad &mdash; at
+    a problem it created by never training expert 8.</p>
+  </div>
+
+  <p>And here is what makes it genuinely dangerous rather than merely wasteful:
+  <strong>nothing errors</strong>. No exception, no NaN, no alert. Training loss keeps
+  falling. It just falls to a worse place than it should have, and you find out
+  months later when your 47B model benchmarks like a 20B one.</p>
+
+  <h2 id="watch">Watch it collapse</h2>
+
+  <p>Below, the same router trained twice &mdash; once with no balancing term, once
+  with the auxiliary loss we're about to derive. Bars are each expert's share of the
+  batch; perfect balance is 12.5%.</p>
+
+  <figure class="anim" id="anim1">
+    <svg viewBox="0 0 760 340" role="img" aria-label="Two panels showing expert load across training steps. Without a balancing loss the distribution collapses so that two experts absorb 85 percent of tokens while three receive almost nothing. With the auxiliary loss every expert stays near the 12.5 percent balanced share.">
+      <rect x="6" y="6" width="366" height="252" rx="10" fill="none" stroke="var(--rule)"/>
+      <rect x="388" y="6" width="366" height="252" rx="10" fill="none" stroke="var(--rule)"/>
+      <text x="189" y="28" text-anchor="middle" font-family="var(--sans)" font-size="12" font-weight="700" fill="var(--danger)">NO BALANCING LOSS</text>
+      <text x="571" y="28" text-anchor="middle" font-family="var(--sans)" font-size="12" font-weight="700" fill="var(--ok)">WITH THE AUXILIARY LOSS</text>
+      <g id="a1-cols"></g>
+      <text id="a1-step" x="380" y="284" text-anchor="middle" font-family="var(--mono)" font-size="13" font-weight="700" fill="currentColor"></text>
+      <text id="a1-note" x="380" y="304" text-anchor="middle" font-family="var(--sans)" font-size="11" fill="var(--ink-faint)">simulated to show the mechanism — the shape is real, the exact numbers are illustrative</text>
+      <text id="a1-cv" x="380" y="326" text-anchor="middle" font-family="var(--sans)" font-size="11.5" font-weight="700"></text>
+    </svg>
+  </figure>
+
+  <h2 id="naive">Two fixes that don't work</h2>
+
+  <p>Before the real answer, it is worth failing twice, because the failures explain
+  the shape of the solution.</p>
+
+  <div class="rung mech">
+    <span class="tag">Attempt 1 — penalise the load directly</span>
+    <p>The obvious move: measure each expert's share of the tokens, call it
+    <span class="v">f</span><sub><span class="v">i</span></sub>, and add a penalty when
+    it strays from 1/<span class="v">N</span>.</p>
+    <p><strong>It produces exactly zero gradient.</strong>
+    <span class="v">f</span><sub><span class="v">i</span></sub> is a <em>count</em>
+    &mdash; how many tokens the <code>argmax</code> sent to expert
+    <span class="v">i</span>, divided by the batch. Counting involves a hard
+    comparison, and hard comparisons have no derivative. You have written down a
+    number that perfectly describes the problem and cannot be optimised.</p>
+  </div>
+
+  <div class="rung mech">
+    <span class="tag">Attempt 2 — penalise confident routing</span>
+    <p>So use something differentiable instead: the router's probabilities. Penalise
+    <span class="big">&Sigma;</span> <span class="v">P</span><sub><span class="v">i</span></sub><sup>2</sup>,
+    which is minimised when the probabilities are uniform.</p>
+    <p><strong>This has a gradient, and it aims at the wrong target.</strong> It
+    punishes the router for being <em>confident</em>, everywhere, all the time
+    &mdash; including on tokens where one expert genuinely is the right answer. It
+    doesn't know which experts are overloaded because it never looks at the actual
+    dispatch. You get a router that is uniformly wishy-washy and still imbalanced.</p>
+  </div>
+
+  <p>So: one term that knows the truth but can't be differentiated, and one that can
+  be differentiated but doesn't know the truth.</p>
+
+  <h2 id="product">Why f&thinsp;&middot;&thinsp;P works when neither does alone</h2>
+
+  <p class="pull">Multiply them together.</p>
+
+  <div class="eq">
+    <span class="label">Switch Transformers, eq. 4</span>
+    <div class="body">
+      loss &nbsp;<span class="op">=</span>&nbsp;
+      <span class="hl-router">&alpha;</span> <span class="op">&middot;</span>
+      <span class="v">N</span> <span class="op">&middot;</span>
+      <span class="big">&Sigma;</span><sub><span class="v">i</span>=1</sub><sup><span class="v">N</span></sup>
+      &nbsp;<span class="hl-idle"><span class="v">f</span><sub><span class="v">i</span></sub></span>
+      <span class="op">&middot;</span>
+      <span class="hl-active"><span class="v">P</span><sub><span class="v">i</span></sub></span>
     </div>
+    <div class="say">Where <b>f<sub>i</sub></b> is the fraction of tokens dispatched
+    to expert <i>i</i> (eq. 5) and <b>P<sub>i</sub></b> is the fraction of router
+    probability allocated to expert <i>i</i> (eq. 6). Switch uses
+    <b>&alpha; = 10<sup>&minus;2</sup></b>.</div>
+  </div>
 
-    <h2>What this chapter will cover</h2>
+  <p>Now differentiate with respect to the only part that has a gradient. Since
+  <span class="v">f</span><sub><span class="v">i</span></sub> is a constant as far as
+  autograd is concerned:</p>
+
+  <div class="eq">
+    <span class="label">The whole trick, in one line</span>
+    <div class="body">
+      <span class="frac"><span>&part; loss</span><span>&part;<span class="v">P</span><sub><span class="v">i</span></sub></span></span>
+      &nbsp;<span class="op">=</span>&nbsp;
+      <span class="hl-router">&alpha;</span> <span class="op">&middot;</span>
+      <span class="v">N</span> <span class="op">&middot;</span>
+      <span class="hl-idle"><span class="v">f</span><sub><span class="v">i</span></sub></span>
+    </div>
+    <div class="say">The downward pressure on an expert's routing probability is
+    <b>proportional to how overloaded that expert actually is</b>. The
+    non-differentiable term doesn't need a gradient &mdash; it acts as a
+    <b>per-expert weight</b> telling the differentiable term how hard to push.</div>
+  </div>
+
+  <p>That is the entire idea, and it's why neither factor works alone.
+  <span class="v">f</span><sub><span class="v">i</span></sub> supplies the
+  <em>truth</em> &mdash; real measured load. <span class="v">P</span><sub><span class="v">i</span></sub>
+  supplies the <em>gradient</em>. The product routes the truth into the gradient
+  without ever needing to differentiate through the counting.</p>
+
+  <figure class="anim" id="anim2">
+    <svg viewBox="0 0 760 350" role="img" aria-label="Eight experts with uneven measured load. The gradient produced by the auxiliary loss on each expert's routing probability is shown as a downward arrow whose size is proportional to that expert's load, so the most overloaded expert is pushed down twenty-one times harder than the least used one.">
+      <g id="a2-cols"></g>
+      <line x1="40" y1="286" x2="720" y2="286" stroke="var(--rule)"/>
+      <text id="a2-cap1" x="40" y="308" font-family="var(--sans)" font-size="12" font-weight="700" fill="currentColor"></text>
+      <text id="a2-cap2" x="40" y="328" font-family="var(--sans)" font-size="11.5" fill="var(--ink-soft)"></text>
+    </svg>
+  </figure>
+
+  <div class="rung math">
+    <span class="tag">Why the N out front</span>
+    <p>Under perfect balance every
+    <span class="v">f</span><sub><span class="v">i</span></sub> and
+    <span class="v">P</span><sub><span class="v">i</span></sub> equals
+    1/<span class="v">N</span>, so the sum is
+    <span class="v">N</span> <span class="op">&middot;</span> (1/<span class="v">N</span>)(1/<span class="v">N</span>)
+    = 1/<span class="v">N</span>. Multiplying by <span class="v">N</span> makes the
+    minimum value <strong>exactly 1, whatever <span class="v">N</span> is</strong>
+    &mdash; so <span class="hl-router">&alpha;</span> means the same thing whether you
+    have 8 experts or 2048, and you don't have to retune it when you scale.</p>
+  </div>
+
+  <h2 id="zloss">The other loss: bfloat16 is out to get you</h2>
+
+  <p>Balance isn't the only way a router breaks. It is also, disproportionately, where
+  training <em>diverges</em> &mdash; and the reason is numerical rather than
+  statistical.</p>
+
+  <div class="rung research">
+    <span class="tag">Research note</span>
+    <p>ST-MoE puts a number on it: bfloat16 has <em>&ldquo;up to 65,536x worse
+    roundoff errors than float32.&rdquo;</em> And because the router's job ends in an
+    exponential, those errors get amplified &mdash; the paper's own example is that a
+    roundoff error of <strong>0.5</strong> in bfloat16 <em>&ldquo;will alter the
+    softmax output by 36%.&rdquo;</em></p>
+    <p>Sparse models are unusually exposed here because, as the paper puts it, they
+    <em>&ldquo;introduce additional exponential functions&mdash;through the
+    router&mdash;which can exacerbate roundoff errors.&rdquo;</em></p>
+  </div>
+
+  <p>Large router logits make this worse, since <code>exp</code> of a large number is
+  enormous and its representable neighbours are far apart. So ST-MoE adds a second
+  auxiliary term whose only purpose is to keep the logits small:</p>
+
+  <div class="eq">
+    <span class="label">ST-MoE, router z-loss</span>
+    <div class="body">
+      <span class="v">L</span><sub><span class="v">z</span></sub>(<span class="v">x</span>)
+      &nbsp;<span class="op">=</span>&nbsp;
+      <span class="frac"><span>1</span><span><span class="v">B</span></span></span>
+      <span class="big">&Sigma;</span><sub><span class="v">i</span>=1</sub><sup><span class="v">B</span></sup>
+      &nbsp;<span class="op">(</span> log
+      <span class="big">&Sigma;</span><sub><span class="v">j</span>=1</sub><sup><span class="v">N</span></sup>
+      <span class="v">e</span><sup><span class="v">x</span><sub><span class="v">j</span></sub><sup>(<span class="v">i</span>)</sup></sup>
+      <span class="op">)</span><sup>2</sup>
+    </div>
+    <div class="say">Penalise the <b>square of the log-sum-exp of the router
+    logits</b>, averaged over the <i>B</i> tokens. In plain terms: <b>keep the router's
+    raw scores small</b>, so the exponential never has to represent a huge number.
+    Coefficient <b>c<sub>z</sub> = 0.001</b>.</div>
+  </div>
+
+  <p>So a production MoE trains against three losses at once &mdash; the actual task,
+  a term that keeps experts busy, and a term that keeps the arithmetic
+  representable:</p>
+
+  <div class="eq">
+    <span class="label">ST-MoE, total loss</span>
+    <div class="body">
+      <span class="v">L</span><sub>tot</sub> <span class="op">=</span>
+      <span class="v">L</span><sub>CE</sub> <span class="op">+</span>
+      <span class="v">c</span><sub><span class="v">B</span></sub>
+      <span class="v">L</span><sub><span class="v">B</span></sub> <span class="op">+</span>
+      <span class="v">c</span><sub><span class="v">z</span></sub>
+      <span class="v">L</span><sub><span class="v">Z</span></sub>
+    </div>
+    <div class="say">Cross-entropy for the actual task, plus the balance loss, plus
+    the z-loss. Two of the three exist purely to stop the router misbehaving.</div>
+  </div>
+
+  <p>Which should tell you something. <strong>Two-thirds of the loss function of a
+  sparse model is devoted to babysitting a matrix that is one part in
+  44,538 of the parameters.</strong> That is the real cost of conditional
+  computation, and it is not the one the headline numbers advertise.</p>
+
+  <h2 id="free">Deleting the loss entirely</h2>
+
+  <p>Every auxiliary loss is a compromise. It is a term you add to the objective that
+  <em>is not the thing you want</em> &mdash; you want good language modelling, and
+  you're spending gradient on load statistics. Push &alpha; too high and you damage the
+  model to keep the histogram tidy; too low and it collapses anyway.</p>
+
+  <p>DeepSeek-V3's answer is to stop using a loss for this at all. Instead it adds a
+  <strong>bias</strong> per expert, used only when deciding who wins:</p>
+
+  <div class="eq">
+    <span class="label">DeepSeek-V3, &sect;2.1.2</span>
+    <div class="body">
+      <span class="v">g</span>&prime;<sub><span class="v">i,t</span></sub> <span class="op">=</span>
+      <span class="hl-active"><span class="v">s</span><sub><span class="v">i,t</span></sub></span>
+      &nbsp;if&nbsp;
+      <span class="hl-active"><span class="v">s</span><sub><span class="v">i,t</span></sub></span>
+      <span class="op">+</span>
+      <span class="hl-router"><span class="v">b</span><sub><span class="v">i</span></sub></span>
+      <span class="op">&isin;</span> TopK, &nbsp; else 0
+    </div>
+    <div class="say">Look carefully at which side the bias is on. It appears
+    <b>inside the TopK test</b> &mdash; it decides <i>who gets selected</i>. It does
+    <b>not</b> appear in the value assigned to <b>g&prime;</b>, which is the bare
+    affinity <b>s<sub>i,t</sub></b>. The bias steers the choice and then gets out of
+    the way.</div>
+  </div>
+
+  <p>The affinity itself is a <strong>sigmoid</strong>, not a softmax &mdash; each
+  expert is scored independently &mdash; and the selected gates are normalised
+  afterwards so they sum to 1, exactly the pattern
+  <a href="02-the-router.html#ordering">chapter 2</a> predicted for
+  <span class="v">k</span>&nbsp;&gt;&nbsp;1:</p>
+
+  <div class="eq">
+    <span class="label">DeepSeek-V3, affinity and normalisation</span>
+    <div class="body">
+      <span class="v">s</span><sub><span class="v">i,t</span></sub> <span class="op">=</span>
+      <span class="hl-router">Sigmoid</span>(<span class="v">u</span><sub><span class="v">t</span></sub><sup>T</sup>
+      <span class="v">e</span><sub><span class="v">i</span></sub>)
+      &nbsp;&nbsp;&nbsp;&nbsp;
+      <span class="v">g</span><sub><span class="v">i,t</span></sub> <span class="op">=</span>
+      <span class="frac">
+        <span><span class="v">g</span>&prime;<sub><span class="v">i,t</span></sub></span>
+        <span><span class="big">&Sigma;</span><sub><span class="v">j</span></sub> <span class="v">g</span>&prime;<sub><span class="v">j,t</span></sub></span>
+      </span>
+    </div>
+    <div class="say">Score each expert independently with a sigmoid, select using
+    score-plus-bias, then normalise the winners' <i>unbiased</i> scores so the gates
+    sum to 1.</div>
+  </div>
+
+  <p>And the update rule is almost comically simple &mdash; no gradient involved at
+  all. Per the paper, the bias is <strong>decreased by &gamma; if the expert is
+  overloaded and increased by &gamma; if it is underloaded</strong>. It's a
+  thermostat.</p>
+
+  <div class="rung mech">
+    <span class="tag">Why this is better than a loss</span>
+    <p>An auxiliary loss fights the task objective &mdash; both are pulling on the
+    same weights, and balance is bought with model quality. The bias fights
+    <em>nothing</em>. It isn't in the computational graph; it's a control signal
+    adjusted outside the gradient. The task loss gets the whole gradient budget, and
+    balance is handled by a separate mechanism that costs the model nothing.</p>
+    <p>And because the bias is excluded from the gate value, balancing never distorts
+    <em>how much</em> a chosen expert contributes &mdash; only <em>which</em> experts
+    get chosen. That separation is the whole design.</p>
+  </div>
+
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>Mechanism</th><th>Where it acts</th><th>Cost to the task objective</th><th class="num">Coefficient</th></tr></thead>
+    <tbody>
+      <tr><td>Switch auxiliary loss</td><td>In the loss, via <code>f<sub>i</sub>&middot;P<sub>i</sub></code></td><td>Competes with cross-entropy for gradient</td><td class="num">&alpha; = 10<sup>&minus;2</sup></td></tr>
+      <tr><td>Router z-loss</td><td>In the loss, on logit magnitude</td><td>Competes, but small</td><td class="num">c<sub>z</sub> = 0.001</td></tr>
+      <tr><td>DeepSeek-V3 bias</td><td>Outside the graph, on selection only</td><td><strong>None</strong></td><td class="num">&gamma; = 0.001</td></tr>
+      <tr><td>DeepSeek-V3 sequence-wise loss</td><td>In the loss, as a backstop</td><td>Deliberately tiny</td><td class="num">&alpha; = 0.0001</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>Note that last row: DeepSeek-V3 does keep a complementary sequence-wise
+  auxiliary loss &mdash; but at <strong>&alpha; = 0.0001</strong>, a hundred times
+  smaller than Switch's. It is a seatbelt, not a steering wheel. And &gamma; itself is
+  set to 0.001 for the first 14.3T tokens of training and then <strong>0</strong> for
+  the remainder: once the experts have found their balance, the thermostat is switched
+  off entirely.</p>
+
+  <div class="problem">
+    <h4>Work it yourself</h4>
+    <p>You're training an 8-expert MoE with Switch's auxiliary loss. After a few
+    thousand steps the measured load is badly skewed:</p>
+    <pre style="margin:0.7rem 0"><code>f = [0.40, 0.02, 0.30, 0.05, 0.15, 0.03, 0.04, 0.01]</code></pre>
+    <p><strong>(a)</strong> With &alpha; = 10<sup>&minus;2</sup> and N = 8, what is
+    <code>∂loss/∂P<sub>i</sub></code> for the most-loaded expert versus the
+    least-loaded one? What's the ratio?<br>
+    <strong>(b)</strong> A colleague suggests fixing collapse faster by raising
+    &alpha; to 1.0. What goes wrong?<br>
+    <strong>(c)</strong> Under DeepSeek-V3's bias scheme instead, expert 1 is
+    overloaded and expert 8 is starved. After 100 update steps, how far apart are
+    their biases &mdash; and what does that do to a token where expert 1's affinity
+    beats expert 8's by 0.05?</p>
+    <details>
+      <summary>Show the answer</summary>
+      <p><strong>(a)</strong> <code>∂loss/∂P<sub>i</sub> = α·N·f<sub>i</sub> =
+      0.01 × 8 × f<sub>i</sub> = 0.08 f<sub>i</sub></code>.<br>
+      Expert 1: <code>0.08 × 0.40 = 0.032</code>. Expert 8:
+      <code>0.08 × 0.01 = 0.0008</code>. The ratio is <strong>40×</strong> — exactly
+      the ratio of their loads, which is the point: the push-down is proportional to
+      the offence.</p>
+      <p><strong>(b)</strong> You'd be optimising the wrong objective. At α = 1.0 the
+      balance term is comparable in magnitude to the cross-entropy loss, so gradient
+      descent will happily <em>hurt language modelling</em> to flatten the histogram —
+      the model learns to route uniformly whether or not uniform routing is right for
+      the token. Perfectly balanced, measurably worse. This is precisely the
+      compromise DeepSeek-V3's bias scheme exists to escape.</p>
+      <p><strong>(c)</strong> Expert 1's bias falls by γ each step and expert 8's
+      rises by γ, so after 100 steps they differ by <code>2 × 100 × 0.001 =
+      <strong>0.2</strong></code> — assuming the imbalance persists that whole time.
+      A 0.05 affinity lead is now comfortably overturned: expert 8 is selected. And
+      critically, <strong>if expert 8 then wins the slot, its gate value is still its
+      own unbiased affinity</strong>, because the bias never enters g′. Balance was
+      corrected without lying to the model about how much it trusts expert 8.</p>
+      <p><em>The key insight in (c) is that the bias changes who runs, not how much
+      their output counts. If you got that, you've got the chapter.</em></p>
+    </details>
+  </div>
+
+  <div class="takeaway">
+    <h4>What you can now do</h4>
     <ul>
-      <li>Expert collapse, and why it is self-reinforcing</li>
-      <li>Switch's auxiliary loss <code>α · N · Σ f_i · P_i</code> — and why the product works when neither factor alone does</li>
-      <li>Why one factor is non-differentiable and it doesn't matter</li>
-      <li>Router z-loss: <code>L_z = (1/B) Σ (log Σ e^{x_j})²</code>, and the bfloat16 roundoff problem it solves</li>
-      <li>DeepSeek-V3's auxiliary-loss-free bias trick</li>
+      <li>Explain why expert collapse is self-reinforcing, and why nothing errors.</li>
+      <li>Derive <code>∂loss/∂P<sub>i</sub> = α·N·f<sub>i</sub></code> and say in one
+        sentence why the product works when neither factor alone does.</li>
+      <li>Say why the <span class="v">N</span> is out front.</li>
+      <li>Explain what the router z-loss protects against, and why bfloat16 makes a
+        router riskier than a dense FFN.</li>
+      <li>Explain why a bias outside the gradient graph beats an auxiliary loss inside
+        it &mdash; and why the bias must not touch the gate value.</li>
     </ul>
+  </div>
 
-    <p>Want to be told when it lands? <a href="https://github.com/Noman654/moe-explained">Watch
-    the repo on GitHub</a> &mdash; releases and commits show up there first. Spotted an
-    error in a chapter that <em>is</em> published, or want something covered here?
-    <a href="https://github.com/Noman654/moe-explained/issues/new">Open an issue</a>.</p>
+  <p>Balance solves <em>who should get the tokens</em>. It says nothing about what
+  happens when they arrive. Experts run on GPUs, GPUs demand fixed tensor shapes, and
+  a fixed shape means a fixed number of seats. Balanced routing makes overflow rarer.
+  It does not make it impossible &mdash; and what happens to a token that finds its
+  expert full is the quietest failure in this entire architecture.</p>
 
-    <nav class="seriesnav">
-      <a href="02-the-router.html"><span class="k">Previous chapter</span><span class="t"><strong>2 &middot; The router</strong></span></a>
-      <a href="../index.html"><span class="k">All chapters</span>
-      <span class="t"><strong>Contents</strong></span></a>
-    </nav>
+  <nav class="seriesnav">
+    <a href="02-the-router.html">
+      <span class="k">Previous chapter</span>
+      <span class="t"><strong>2 &middot; The router's impossible job</strong></span>
+    </a>
+    <a href="04-capacity-factor.html">
+      <span class="k">Next chapter</span>
+      <span class="t"><strong>4 &middot; Capacity</strong> &mdash; and the tokens
+      thrown away</span>
+    </a>
+  </nav>
 
-    <section class="comments">
-      <h2>What should this chapter cover?</h2>
-      <p class="lede">It isn't written yet, which makes this the useful moment to
-      speak up. If there's a question you want answered here, or something every
-      other explanation of this topic got wrong, say so and I'll write to it.</p>
-      <div id="giscus-mount"></div>
-    </section>
+  <h3>Sources for this chapter</h3>
+  <ol class="refs">
+    <li>Fedus, Zoph &amp; Shazeer (2021).
+      <a href="https://arxiv.org/abs/2101.03961"><em>Switch Transformers</em></a>.
+      &mdash; eq. 4, 5, 6; &alpha; = 10<sup>&minus;2</sup>.</li>
+    <li>Zoph et al. (2022).
+      <a href="https://arxiv.org/abs/2202.08906"><em>ST-MoE: Designing Stable and
+      Transferable Sparse Expert Models</em></a>. &mdash; router z-loss;
+      c<sub>z</sub> = 0.001; the bfloat16 roundoff figures.</li>
+    <li>DeepSeek-AI (2024).
+      <a href="https://arxiv.org/abs/2412.19437"><em>DeepSeek-V3 Technical
+      Report</em></a>. &mdash; &sect;2.1.2 auxiliary-loss-free balancing; sigmoid
+      affinity; &gamma; = 0.001 then 0; sequence-wise &alpha; = 0.0001.</li>
+    <li>Dai et al. (2024).
+      <a href="https://arxiv.org/abs/2401.06066"><em>DeepSeekMoE</em></a>. &mdash;
+      shared-expert isolation and fine-grained segmentation, covered properly in
+      <a href="05-the-lineage.html">chapter 5</a>.</li>
+  </ol>
+
+  <section class="comments">
+    <h2>Comments &amp; corrections</h2>
+    <p class="lede">Threads live in this book's GitHub Discussions. This chapter has
+    the densest math in the book &mdash; if a step didn't land, say so and I'll rewrite
+    it.</p>
+    <div class="fixit">
+      <span><b>Found an error?</b>
+      Every formula here was copied from the primary paper and every number verified.
+      If something is wrong, that's a bug &mdash;
+      <a href="https://github.com/Noman654/moe-explained/issues/new?title=Chapter%203%3A%20correction&amp;body=Where%20(section%20or%20equation)%3A%0A%0AWhat%27s%20wrong%3A%0A%0ASource%20that%20says%20otherwise%3A%0A">open
+      an issue</a> and I'll fix it and say so.</span>
+    </div>
+    <div id="giscus-mount"></div>
+  </section>
+
   </article>
 </div>
 
@@ -85,6 +482,220 @@
   <a href="https://github.com/Noman654/moe-explained">Source</a>
 </div></footer>
 
+<script src="../assets/anim.js"></script>
 <script src="../assets/comments.js"></script>
+<script>
+(function () {
+  var bar = document.getElementById('prog'), art = document.querySelector('article');
+  function upd() {
+    var h = art.offsetHeight - window.innerHeight;
+    var p = h > 0 ? (window.scrollY - art.offsetTop) / h : 0;
+    bar.style.width = Math.max(0, Math.min(1, p)) * 100 + '%';
+  }
+  addEventListener('scroll', upd, { passive: true });
+  addEventListener('resize', upd); upd();
+})();
+
+/* ============ ANIMATION 1 — collapse, and the loss that stops it =========== */
+(function () {
+  var SVG = 'http://www.w3.org/2000/svg';
+  var STEPS_LABEL = ['step 0', 'step 1k', 'step 5k', 'step 10k', 'step 25k', 'step 50k'];
+  var BAD = [
+    [.125,.125,.125,.125,.125,.125,.125,.125],
+    [.14,.11,.16,.12,.13,.11,.12,.11],
+    [.19,.08,.24,.10,.12,.09,.10,.08],
+    [.26,.05,.33,.07,.10,.06,.08,.05],
+    [.34,.02,.42,.04,.08,.03,.05,.02],
+    [.38,.01,.47,.02,.06,.02,.03,.01]
+  ];
+  var GOOD = [
+    [.125,.125,.125,.125,.125,.125,.125,.125],
+    [.13,.12,.14,.12,.13,.12,.12,.12],
+    [.14,.12,.13,.12,.13,.12,.12,.12],
+    [.13,.12,.14,.13,.12,.12,.12,.12],
+    [.13,.12,.13,.13,.12,.12,.13,.12],
+    [.13,.12,.13,.12,.13,.12,.13,.12]
+  ];
+
+  var cols = document.getElementById('a1-cols');
+  var BASE = 232, MAXH = 168;   // a bar of load 0.50 reaches MAXH
+
+  function panel(x0, colorFn) {
+    var g = document.createElementNS(SVG, 'g'), bars = [], labs = [];
+    // the balanced reference line at 12.5%
+    var ref = document.createElementNS(SVG, 'line');
+    var refY = BASE - 0.125 / 0.5 * MAXH;
+    ref.setAttribute('x1', x0 + 14); ref.setAttribute('y1', refY);
+    ref.setAttribute('x2', x0 + 352); ref.setAttribute('y2', refY);
+    ref.setAttribute('stroke', 'var(--ink-faint)');
+    ref.setAttribute('stroke-dasharray', '3 3');
+    g.appendChild(ref);
+    var rl = document.createElementNS(SVG, 'text');
+    rl.setAttribute('x', x0 + 16); rl.setAttribute('y', refY - 5);
+    rl.setAttribute('font-family', 'var(--sans)'); rl.setAttribute('font-size', '9');
+    rl.setAttribute('fill', 'var(--ink-faint)');
+    rl.textContent = 'balanced share = 12.5%';
+    g.appendChild(rl);
+
+    for (var i = 0; i < 8; i++) {
+      var bx = x0 + 20 + i * 42;
+      var r = document.createElementNS(SVG, 'rect');
+      r.setAttribute('x', bx); r.setAttribute('width', 30); r.setAttribute('rx', 3);
+      r.setAttribute('class', 'tally');
+      g.appendChild(r); bars.push(r);
+      var t = document.createElementNS(SVG, 'text');
+      t.setAttribute('x', bx + 15); t.setAttribute('y', BASE + 14);
+      t.setAttribute('text-anchor', 'middle'); t.setAttribute('font-family', 'var(--mono)');
+      t.setAttribute('font-size', '9'); t.setAttribute('fill', 'var(--ink-faint)');
+      g.appendChild(t); labs.push(t);
+    }
+    var axis = document.createElementNS(SVG, 'line');
+    axis.setAttribute('x1', x0 + 14); axis.setAttribute('y1', BASE);
+    axis.setAttribute('x2', x0 + 352); axis.setAttribute('y2', BASE);
+    axis.setAttribute('stroke', 'var(--rule-strong)');
+    g.appendChild(axis);
+    cols.appendChild(g);
+    return { bars: bars, labs: labs, colorFn: colorFn };
+  }
+
+  var P1 = panel(6, function (v) {
+    return v > 0.25 ? 'var(--danger)' : (v < 0.05 ? 'var(--idle)' : 'var(--router)');
+  });
+  var P2 = panel(388, function () { return 'var(--ok)'; });
+
+  function draw(p, data) {
+    p.bars.forEach(function (r, i) {
+      var h = data[i] / 0.5 * MAXH;
+      r.setAttribute('y', BASE - h);
+      r.setAttribute('height', h);
+      r.setAttribute('fill', p.colorFn(data[i]));
+      p.labs[i].textContent = Math.round(data[i] * 100) + '%';
+    });
+  }
+
+  function spread(d) {   // max ÷ min, a blunt but legible imbalance measure
+    return (Math.max.apply(null, d) / Math.min.apply(null, d));
+  }
+
+  var CAPS = [
+    'Both routers start at random initialisation, which is near-uniform. Nothing to choose between them yet.',
+    'A thousand steps in. The unbalanced router already has mild preferences — E1 and E3 are pulling ahead.',
+    'Five thousand steps. The lead is compounding: experts that win more get more gradient, so they get better, so they win more.',
+    'Ten thousand steps. E3 is taking a third of everything. E2 and E8 are down to 5% — they are barely training.',
+    'Twenty-five thousand. E3 and E1 hold three quarters of the traffic. E8 at 2% has effectively stopped learning.',
+    'Fifty thousand steps. Two experts absorb 85% of every batch; three are functionally dead. On the right, the auxiliary loss held every expert within a point or two of 12.5% the entire time.'
+  ];
+
+  MoEAnim.create({
+    mount: document.getElementById('anim1'),
+    steps: CAPS.map(function (c) { return { caption: c }; }),
+    interval: 2000,
+    render: function (s) {
+      draw(P1, BAD[s]); draw(P2, GOOD[s]);
+      document.getElementById('a1-step').textContent = STEPS_LABEL[s];
+      var cv = document.getElementById('a1-cv');
+      cv.textContent = 'imbalance (busiest ÷ quietest):   no loss ' +
+        spread(BAD[s]).toFixed(0) + '×      with loss ' + spread(GOOD[s]).toFixed(1) + '×';
+      cv.setAttribute('fill', s >= 3 ? 'var(--danger)' : 'var(--ink-soft)');
+    }
+  });
+})();
+
+/* ============ ANIMATION 2 — where the gradient actually points ============ */
+(function () {
+  var SVG = 'http://www.w3.org/2000/svg';
+  var F = [0.40, 0.02, 0.30, 0.05, 0.15, 0.03, 0.04, 0.01];
+  var ALPHA = 0.01, N = 8;
+  var cols = document.getElementById('a2-cols');
+  var BASE = 190, MAXH = 130;
+
+  var els = [];
+  for (var i = 0; i < 8; i++) {
+    var x = 60 + i * 84, cx = x + 30;
+    var g = document.createElementNS(SVG, 'g');
+
+    var bar = document.createElementNS(SVG, 'rect');
+    var h = F[i] / 0.45 * MAXH;
+    bar.setAttribute('x', x); bar.setAttribute('y', BASE - h);
+    bar.setAttribute('width', 60); bar.setAttribute('height', h);
+    bar.setAttribute('rx', 3); bar.setAttribute('class', 'node');
+    g.appendChild(bar);
+
+    var pct = document.createElementNS(SVG, 'text');
+    pct.setAttribute('x', cx); pct.setAttribute('y', BASE - h - 6);
+    pct.setAttribute('text-anchor', 'middle'); pct.setAttribute('font-family', 'var(--mono)');
+    pct.setAttribute('font-size', '10.5'); pct.setAttribute('font-weight', '700');
+    pct.textContent = F[i].toFixed(2);
+    g.appendChild(pct);
+
+    var lab = document.createElementNS(SVG, 'text');
+    lab.setAttribute('x', cx); lab.setAttribute('y', BASE + 15);
+    lab.setAttribute('text-anchor', 'middle'); lab.setAttribute('font-family', 'var(--sans)');
+    lab.setAttribute('font-size', '10.5'); lab.setAttribute('fill', 'var(--ink-faint)');
+    lab.textContent = 'E' + (i + 1);
+    g.appendChild(lab);
+
+    // downward gradient arrow, length proportional to alpha*N*f_i
+    var arr = document.createElementNS(SVG, 'line');
+    arr.setAttribute('x1', cx); arr.setAttribute('y1', BASE + 26);
+    arr.setAttribute('x2', cx); arr.setAttribute('y2', BASE + 26 + F[i] / 0.40 * 46);
+    arr.setAttribute('stroke', 'var(--danger)'); arr.setAttribute('stroke-width', 3);
+    arr.setAttribute('class', 'node');
+    g.appendChild(arr);
+    var head = document.createElementNS(SVG, 'polygon');
+    var ty = BASE + 26 + F[i] / 0.40 * 46;
+    head.setAttribute('points', (cx - 5) + ',' + ty + ' ' + (cx + 5) + ',' + ty + ' ' + cx + ',' + (ty + 8));
+    head.setAttribute('fill', 'var(--danger)'); head.setAttribute('class', 'node');
+    g.appendChild(head);
+
+    var gv = document.createElementNS(SVG, 'text');
+    gv.setAttribute('x', cx); gv.setAttribute('y', BASE + 90);
+    gv.setAttribute('text-anchor', 'middle'); gv.setAttribute('font-family', 'var(--mono)');
+    gv.setAttribute('font-size', '9.5'); gv.setAttribute('fill', 'var(--danger)');
+    gv.setAttribute('class', 'node');
+    gv.textContent = (ALPHA * N * F[i]).toFixed(4);
+    g.appendChild(gv);
+
+    cols.appendChild(g);
+    els.push({ bar: bar, pct: pct, arr: arr, head: head, gv: gv });
+  }
+
+  var STEPS = [
+    { caption: 'Measured load after a few thousand steps — <b>f<sub>i</sub></b>, the fraction of the batch each expert received. E1 and E3 are hogging it; E8 has almost nothing.' },
+    { caption: 'This vector is the truth, and it is <b>useless to autograd</b> — it comes from counting argmax outcomes, so it has no derivative anywhere.' },
+    { caption: 'But multiply it by the routing probability and differentiate: <b>∂loss/∂P<sub>i</sub> = α · N · f<sub>i</sub></b>. Each expert gets pushed down in proportion to its own load.' },
+    { caption: 'E1, at 40% of the batch, is pushed down <b>40× harder</b> than E8 at 1%. The overloaded are suppressed; the starved are left alone to recover.' },
+    { caption: 'That is the whole mechanism. <b>f</b> supplies the truth, <b>P</b> supplies the gradient, and the product carries one into the other without ever differentiating a count.' }
+  ];
+
+  MoEAnim.create({
+    mount: document.getElementById('anim2'), steps: STEPS, interval: 2200,
+    render: function (s) {
+      els.forEach(function (e, i) {
+        var hot = F[i] > 0.25;
+        e.bar.setAttribute('fill', s >= 1 && hot ? 'var(--danger)' : 'var(--router)');
+        e.pct.setAttribute('fill', s >= 1 && hot ? 'var(--danger)' : 'var(--ink-soft)');
+        var showGrad = s >= 2;
+        e.arr.classList.toggle('hide', !showGrad);
+        e.head.classList.toggle('hide', !showGrad);
+        e.gv.classList.toggle('hide', s < 3);
+      });
+      var c1 = document.getElementById('a2-cap1'), c2 = document.getElementById('a2-cap2');
+      if (s >= 3) {
+        c1.textContent = 'E1: 0.08 × 0.40 = 0.0320      E8: 0.08 × 0.01 = 0.0008      ratio 40×';
+        c1.setAttribute('fill', 'var(--danger)');
+        c2.textContent = 'The push-down is exactly proportional to the offence — no tuning, no special cases.';
+      } else if (s >= 2) {
+        c1.textContent = '∂loss/∂P_i  =  α · N · f_i  =  0.01 × 8 × f_i';
+        c1.setAttribute('fill', 'currentColor');
+        c2.textContent = '';
+      } else {
+        c1.textContent = ''; c2.textContent = '';
+      }
+    }
+  });
+})();
+</script>
+
 </body>
 </html>
