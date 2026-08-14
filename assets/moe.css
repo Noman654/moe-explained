@@ -25,7 +25,7 @@
   --ink-faint:   #82828a;
   --rule:        #e4e4e6;
   --rule-strong: #c8c8cc;
-  --accent:      #2f2f9e;   /* links only */
+  --accent:      #0b57d0;   /* links only — a clear blue, so links read as links */
 
   /* --- figure palette: for use inside <svg> --- */
   --router:      #4f46b8;
@@ -60,7 +60,7 @@
     --ink-faint:   #74747e;
     --rule:        #26262b;
     --rule-strong: #3a3a41;
-    --accent:      #a6a0f0;
+    --accent:      #6cabff;
 
     --router:      #a79dfa;
     --router-soft: #1e1c33;
@@ -82,7 +82,7 @@
   --ink-faint:   #74747e;
   --rule:        #26262b;
   --rule-strong: #3a3a41;
-  --accent:      #a6a0f0;
+  --accent:      #6cabff;
 
   --router:      #a79dfa;
   --router-soft: #1e1c33;
@@ -98,6 +98,7 @@
 
 /* ========================== base ========================== */
 * { box-sizing: border-box; }
+@media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
 
 body {
   margin: 0;
@@ -162,8 +163,12 @@ h3 {
   font-size: 1.1rem; margin: 3rem 0 0.6rem; letter-spacing: -0.008em;
 }
 p { margin: 0 0 1.5rem; text-wrap: pretty; }
-a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 3px; }
-a:hover { text-decoration-thickness: 2px; }
+a {
+  color: var(--accent);
+  text-decoration-thickness: 1px; text-underline-offset: 3px;
+  text-decoration-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+a:hover { text-decoration-thickness: 2px; text-decoration-color: var(--accent); }
 strong { font-weight: 600; }
 em { font-style: italic; }
 
@@ -172,6 +177,11 @@ li { margin-bottom: 0.6rem; padding-left: 0.2rem; }
 li::marker { color: var(--ink-faint); }
 
 hr { border: 0; border-top: 1px solid var(--rule); margin: 5rem 0; }
+
+::selection { background: var(--router-soft); color: var(--ink); }
+a:focus-visible, summary:focus-visible, button:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px;
+}
 
 /* ========================== the depth rungs ==========================
    No boxes, no rails, no colour. A rung is a labelled aside: hairline above,
@@ -260,10 +270,11 @@ tbody tr:last-child td { border-bottom: 0; }
 
 /* ========================== code ========================== */
 code {
-  font-family: var(--mono); font-size: 0.86em;
-  background: none; border: 0; padding: 0; color: var(--ink);
+  font-family: var(--mono); font-size: 0.85em; color: var(--ink);
+  background: var(--paper-sunk); border: 0;
+  padding: 0.13em 0.38em; border-radius: 4px;
 }
-p code, li code, td code { border-bottom: 1px solid var(--rule-strong); }
+pre code, .eq code { background: none; padding: 0; border-radius: 0; }
 pre {
   background: var(--paper-sunk); border: 0; border-radius: 0;
   padding: 1.6rem 1.5rem; overflow-x: auto;
