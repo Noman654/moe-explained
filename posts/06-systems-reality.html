@@ -305,7 +305,7 @@
       <thead><tr><th>Precision</th><th class="num">Quality (neg. log perp.)</th><th class="num">Speed (examples/sec)</th></tr></thead>
       <tbody>
         <tr><td>float32 throughout</td><td class="num">&minus;1.718</td><td class="num">1160</td></tr>
-        <tr><td>bfloat16 throughout</td><td class="num" style="color:var(--danger)"><strong>&minus;3.780 &nbsp;diverged</strong></td><td class="num">1390</td></tr>
+        <tr><td>bfloat16 throughout</td><td class="num"><strong>&minus;3.780</strong> <em>diverged</em></td><td class="num">1390</td></tr>
         <tr><td><strong>Selective precision</strong></td><td class="num"><strong>&minus;1.716</strong></td><td class="num"><strong>1390</strong></td></tr>
       </tbody>
     </table>
@@ -368,12 +368,12 @@
   <table>
     <thead><tr><th>Resource</th><th>Scales with</th><th>Verdict for MoE</th></tr></thead>
     <tbody>
-      <tr><td>Training compute</td><td>Active parameters</td><td style="color:var(--ok)"><strong>Big win</strong> &mdash; the whole point</td></tr>
-      <tr><td>Model quality</td><td>Total <em>and</em> active, interacting</td><td style="color:var(--ok)"><strong>Win, with a ceiling</strong> &mdash; ch.5: Switch-XXL's 395B beat Switch-C's 1571B</td></tr>
-      <tr><td>Inference arithmetic</td><td>Active parameters</td><td style="color:var(--ok)"><strong>Win</strong></td></tr>
-      <tr><td>Inference memory</td><td>Total parameters</td><td style="color:var(--danger)"><strong>Loss</strong> &mdash; no discount at all</td></tr>
-      <tr><td>Interconnect traffic</td><td>Experts &times; devices</td><td style="color:var(--danger)"><strong>Loss</strong> &mdash; two all-to-alls per pass</td></tr>
-      <tr><td>Engineering complexity</td><td>&mdash;</td><td style="color:var(--danger)"><strong>Loss</strong> &mdash; four chapters of it</td></tr>
+      <tr><td>Training compute</td><td>Active parameters</td><td><strong>Big win</strong> &mdash; the whole point</td></tr>
+      <tr><td>Model quality</td><td>Total <em>and</em> active, interacting</td><td><strong>Win, with a ceiling</strong> &mdash; ch.5: Switch-XXL's 395B beat Switch-C's 1571B</td></tr>
+      <tr><td>Inference arithmetic</td><td>Active parameters</td><td><strong>Win</strong></td></tr>
+      <tr><td>Inference memory</td><td>Total parameters</td><td><strong>Loss</strong> &mdash; no discount at all</td></tr>
+      <tr><td>Interconnect traffic</td><td>Experts &times; devices</td><td><strong>Loss</strong> &mdash; two all-to-alls per pass</td></tr>
+      <tr><td>Engineering complexity</td><td>&mdash;</td><td><strong>Loss</strong> &mdash; four chapters of it</td></tr>
     </tbody>
   </table>
   </div>

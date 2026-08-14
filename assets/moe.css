@@ -581,3 +581,10 @@ footer.site a { color: var(--ink-faint); }
   .eq .body { font-size: 0.92rem; }
   h2 { margin-top: 4rem; }
 }
+
+/* The verdict table earns its emphasis from the words, not from status colour —
+   "Win" and "Loss" are already unambiguous, and colouring them would break the
+   rule at the top of this file. */
+table td strong { font-weight: 600; }
+table td strong + span,
+table td em { color: var(--ink-faint); font-style: italic; }
