@@ -68,8 +68,6 @@ tools/to_artifact.py # strips a chapter into a shareable fragment
 
 </details>
 
-## Author
-
-Written by **[Mohd Nauman](https://github.com/Noman654)**.
+## License
 
 MIT for the code · CC BY 4.0 for the prose — take it, teach with it, say where it came from.
