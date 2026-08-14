@@ -47,20 +47,30 @@
   for (var k in attrs) if (attrs.hasOwnProperty(k)) s.setAttribute(k, attrs[k]);
   mount.appendChild(s);
 
-  // If giscus cannot load — most commonly because the GitHub App has not been
-  // installed on the repo — the mount would otherwise sit empty under a heading
-  // promising comments. Say what happened instead of showing nothing.
-  setTimeout(function () {
-    if (mount.querySelector("iframe.giscus-frame")) return;
+  // If giscus cannot load, say what happened instead of showing a raw error.
+  // Two failure modes need covering: the script never producing an iframe
+  // (blocked network), and — the sneaky one — giscus creating its iframe and
+  // then erroring *inside* it (e.g. the GitHub App not installed on the repo).
+  // giscus broadcasts that second kind via postMessage, so listen for it.
+  function fallback() {
+    if (mount.querySelector(".commentfallback")) return;
+    var f = mount.querySelector("iframe.giscus-frame");
+    if (f) f.style.display = "none";
     var note = document.createElement("p");
     note.className = "commentfallback";
     note.innerHTML =
-      "The comment box isn’t loading. That usually means the giscus app " +
-      "hasn’t been installed on this repository yet — it’s a one-click " +
-      "step for the owner. Until it is, " +
-      '<a href="https://github.com/Noman654/moe-explained/issues/new">an issue</a> ' +
-      "reaches me just as well.";
+      "The comment box isn’t available right now — the giscus app isn’t " +
+      "installed on this repository yet (a one-click step for the owner). " +
+      'Until it is, <a href="https://github.com/Noman654/moe-explained/issues/new">' +
+      "an issue</a> reaches me just as well.";
     mount.appendChild(note);
+  }
+  window.addEventListener("message", function (e) {
+    if (e.origin !== "https://giscus.app") return;
+    if (e.data && e.data.giscus && e.data.giscus.error) fallback();
+  });
+  setTimeout(function () {
+    if (!mount.querySelector("iframe.giscus-frame")) fallback();
   }, 6000);
 
   // Keep the embedded thread in step if the viewer flips their OS theme mid-read.
