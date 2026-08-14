@@ -178,6 +178,15 @@ you want from chapter 3 before it exists is more useful than telling me after.
 
 ---
 
+## Author
+
+Written by **[Mohd Nauman](https://github.com/Noman654)** — [@Noman654](https://github.com/Noman654).
+
+Corrections and questions are welcome in the comments at the foot of any chapter, or
+as an [issue](https://github.com/Noman654/moe-explained/issues/new).
+
+---
+
 ## License
 
 MIT for the code. Prose is CC BY 4.0 — take it, teach with it, just say where it came from.
