@@ -48,8 +48,8 @@ def check_links():
     for page in CHAPTERS + [REPO / "index.html"]:
         html = page.read_text(encoding="utf-8")
         for href in re.findall(r'href="([^"#][^"]*)"', html):
-            if href.startswith(("http://", "https://", "mailto:")):
-                continue
+            if href.startswith(("http://", "https://", "mailto:", "data:", "/")):
+                continue  # remote, inline, or site-absolute (resolved by Pages, not the tree)
             target = (page.parent / href.split("#")[0]).resolve()
             if not target.is_file():
                 fails.append(f"{page.name}: dead link -> {href}")
