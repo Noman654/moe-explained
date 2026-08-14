@@ -47,6 +47,22 @@
   for (var k in attrs) if (attrs.hasOwnProperty(k)) s.setAttribute(k, attrs[k]);
   mount.appendChild(s);
 
+  // If giscus cannot load — most commonly because the GitHub App has not been
+  // installed on the repo — the mount would otherwise sit empty under a heading
+  // promising comments. Say what happened instead of showing nothing.
+  setTimeout(function () {
+    if (mount.querySelector("iframe.giscus-frame")) return;
+    var note = document.createElement("p");
+    note.className = "commentfallback";
+    note.innerHTML =
+      "The comment box isn’t loading. That usually means the giscus app " +
+      "hasn’t been installed on this repository yet — it’s a one-click " +
+      "step for the owner. Until it is, " +
+      '<a href="https://github.com/Noman654/moe-explained/issues/new">an issue</a> ' +
+      "reaches me just as well.";
+    mount.appendChild(note);
+  }, 6000);
+
   // Keep the embedded thread in step if the viewer flips their OS theme mid-read.
   if (window.matchMedia) {
     var mq = window.matchMedia("(prefers-color-scheme: dark)");

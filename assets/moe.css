@@ -588,3 +588,10 @@ footer.site a { color: var(--ink-faint); }
 table td strong { font-weight: 600; }
 table td strong + span,
 table td em { color: var(--ink-faint); font-style: italic; }
+
+/* Shown only when giscus fails to load, so a heading promising comments never
+   sits above an empty div. */
+.commentfallback {
+  font-size: 0.95rem; line-height: 1.6; color: var(--ink-faint);
+  font-style: italic; margin: 0;
+}
