@@ -62,6 +62,22 @@
           <dt>d<sub>model</sub></dt><dd>model dimension (4096 in Mixtral)</dd>
           <dt>d<sub>ff</sub></dt><dd>FFN hidden dimension (14336)</dd>
         </dl>
+        <p class="nsub">Background terms &mdash; used by this book, built elsewhere</p>
+        <dl class="nbg">
+          <dt>token</dt><dd>a chunk of text (~&frac34; of a word) — the unit a model processes</dd>
+          <dt>logit</dt><dd>a raw, unnormalised score, before softmax turns it into a weight</dd>
+          <dt>softmax</dt><dd>turns a list of scores into positive weights that sum to 1</dd>
+          <dt>residual</dt><dd>the "main line" a token travels along; layers add to it rather than replace it, so skipping a layer is harmless</dd>
+          <dt>loss</dt><dd>one number saying how wrong the model was. Training = nudging weights to make it smaller</dd>
+          <dt>gradient</dt><dd>which way to nudge each weight, and how hard, to reduce the loss</dd>
+          <dt>differentiable</dt><dd>has a gradient. A hard count (an argmax, a tally) does not — this is the whole tension in ch.3</dd>
+          <dt>autograd</dt><dd>the machinery that tracks which quantities carry gradients</dd>
+          <dt>cross-entropy</dt><dd>the loss for "predict the next token" — the model's actual job</dd>
+          <dt>collective</dt><dd>an operation every device does together (all-reduce, all-to-all)</dd>
+          <dt>roofline</dt><dd>the ceiling on delivered performance: you are limited by compute or by memory bandwidth, whichever binds first</dd>
+          <dt>machine balance</dt><dd>the crossover between those two, in FLOPs per byte moved (~148 on an H100)</dd>
+          <dt>prefill / decode</dt><dd>reading the prompt all at once vs. generating one token at a time. Decode is the memory-bound one</dd>
+        </dl>
         <p class="ncaveat">Careful with <b>E</b>: this book uses it for an expert
         (<b>E<sub>i</sub></b>), but GShard's papers use <b>E</b> for the expert
         <em>count</em> — where this book writes <b>N</b>. Quoted formulas keep their
@@ -91,6 +107,16 @@
   8 large ones, why the balancing loss has the exact shape it does. None of it was
   designed. All of it was argued into existence, and the arguments are recoverable
   because each paper states what it disliked about its predecessor.</p>
+
+  <div class="rung feel">
+    <span class="tag">Feel it</span>
+    <p>This chapter is a <em>conversation</em>, not a reading list. Each paper opens by
+    saying what it disliked about the last one, so the design decisions arrive as
+    replies rather than as decrees &mdash; and one of the replies is that the field had
+    been wrong for four years about something it never actually checked.</p>
+    <p>You do not need the math of chapters 2 and 3 to follow it. If those chapters lost
+    you, this is a good place to rejoin.</p>
+  </div>
 
   <figure class="anim" id="anim1">
     <svg viewBox="0 0 760 330" role="img" aria-label="A timeline of six Mixture-of-Experts papers from 2017 to 2024, showing for each its year, model scale, expert count, top-k setting, and the specific complaint about its predecessor that motivated it.">

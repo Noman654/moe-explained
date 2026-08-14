@@ -89,10 +89,24 @@
       buried.</div>
   </div>
 
-  <p style="margin-top:1.6rem"><strong>Prerequisite:</strong> you know what a
-  transformer feed-forward network is. That's genuinely it — everything else is
-  built up from there. If you're writing MoE kernels for a living, chapter 6 still has
-  something for you.</p>
+  <p style="margin-top:1.6rem"><strong>What you actually need, honestly:</strong>
+  chapters 1&ndash;3 assume you know what a transformer feed-forward network is, and
+  build everything else from there. <strong>Chapters 4 and 6 additionally assume you
+  have seen a model run across more than one device</strong> — sharding, collectives,
+  data and tensor parallelism. That second prerequisite went unstated for a while, and
+  it is a real one.</p>
+
+  <p><strong>Below the bar?</strong> Read <strong>1, 5, 4, 6</strong> first, then treat
+  2 and 3 as reference. MoE's motivation, its history and its systems consequences are
+  genuinely accessible without an ML background; it is the routing <em>math</em> that
+  is not, and it sits in chapters 2 and 3. That ordering came from a reader who didn't
+  meet the prerequisite and finished anyway.</p>
+
+  <p><strong>Writing MoE kernels for a living?</strong> This book is a synthesis, not
+  research — it will not tell you anything new. For the kernel layer proper, go to
+  <a href="https://arxiv.org/abs/2211.15841">MegaBlocks</a> (dropless MoE, which
+  chapter 4 does not cover) and DeepSeek's DeepEP. What chapter 6 offers you is a
+  compact statement of the arithmetic, not an implementation.</p>
 
   <h2 id="posts">The six chapters</h2>
 
@@ -152,8 +166,14 @@
   <ul>
     <li><strong>Every formula is copied from the primary paper</strong>, not from
       memory and not from another blog.</li>
-    <li><strong>Every number is real and cited.</strong> Where a paper doesn't report
-      something, the cell stays blank rather than getting a plausible guess.</li>
+    <li><strong>Every number is real and cited</strong> — where it comes from a paper.
+      Where the book computes something itself, or assumes a hardware figure, it says
+      so. Where a paper doesn't report something, the cell stays blank rather than
+      getting a plausible guess.</li>
+    <li><strong>Errors get fixed in public.</strong> An adversarial audit against the
+      primary sources found 18 in the first complete draft, and a reader found a
+      7&times; hardware-spec error in chapter 6's calculator after that. Both are
+      corrected; the corrections are in the git history.</li>
     <li><strong>Analogies are labelled as analogies</strong>, and each one is
       followed by where it stops being true.</li>
   </ul>

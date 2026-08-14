@@ -60,6 +60,22 @@
           <dt>d<sub>model</sub></dt><dd>model dimension (4096 in Mixtral)</dd>
           <dt>d<sub>ff</sub></dt><dd>FFN hidden dimension (14336)</dd>
         </dl>
+        <p class="nsub">Background terms &mdash; used by this book, built elsewhere</p>
+        <dl class="nbg">
+          <dt>token</dt><dd>a chunk of text (~&frac34; of a word) — the unit a model processes</dd>
+          <dt>logit</dt><dd>a raw, unnormalised score, before softmax turns it into a weight</dd>
+          <dt>softmax</dt><dd>turns a list of scores into positive weights that sum to 1</dd>
+          <dt>residual</dt><dd>the "main line" a token travels along; layers add to it rather than replace it, so skipping a layer is harmless</dd>
+          <dt>loss</dt><dd>one number saying how wrong the model was. Training = nudging weights to make it smaller</dd>
+          <dt>gradient</dt><dd>which way to nudge each weight, and how hard, to reduce the loss</dd>
+          <dt>differentiable</dt><dd>has a gradient. A hard count (an argmax, a tally) does not — this is the whole tension in ch.3</dd>
+          <dt>autograd</dt><dd>the machinery that tracks which quantities carry gradients</dd>
+          <dt>cross-entropy</dt><dd>the loss for "predict the next token" — the model's actual job</dd>
+          <dt>collective</dt><dd>an operation every device does together (all-reduce, all-to-all)</dd>
+          <dt>roofline</dt><dd>the ceiling on delivered performance: you are limited by compute or by memory bandwidth, whichever binds first</dd>
+          <dt>machine balance</dt><dd>the crossover between those two, in FLOPs per byte moved (~148 on an H100)</dd>
+          <dt>prefill / decode</dt><dd>reading the prompt all at once vs. generating one token at a time. Decode is the memory-bound one</dd>
+        </dl>
         <p class="ncaveat">Careful with <b>E</b>: this book uses it for an expert
         (<b>E<sub>i</sub></b>), but GShard's papers use <b>E</b> for the expert
         <em>count</em> — where this book writes <b>N</b>. Quoted formulas keep their
@@ -117,6 +133,19 @@
   falling. It just falls to a worse place than it should have, and you find out
   months later when your 47B model benchmarks like a 20B one.</p>
 
+  <div class="rung feel">
+    <span class="tag">Feel it</span>
+    <p>A new manager splits work between eight staff. One happens to finish an early
+    task well, so she gets the next one, and the next. She gets better because she is
+    getting all the practice; the others stay novices because they never get any. Six
+    months on, the manager is <em>right</em> that she is the best person for the job
+    &mdash; and the department has one skilled employee and seven who cost salary and
+    do nothing.</p>
+    <p><em>Where the analogy breaks:</em> a human manager would notice. This one has no
+    representation of &ldquo;how busy is everyone&rdquo; anywhere in its objective.
+    Giving it one is what the rest of this chapter builds.</p>
+  </div>
+
   <h2 id="watch">Watch it collapse</h2>
 
   <p>Below, the same router trained twice &mdash; once with no balancing term, once
@@ -159,11 +188,19 @@
     <p>So use something differentiable instead: the router's probabilities. Penalise
     <span class="big">&Sigma;</span> <span class="v">P</span><sub><span class="v">i</span></sub><sup>2</sup>,
     which is minimised when the probabilities are uniform.</p>
-    <p><strong>This has a gradient, and it aims at the wrong target.</strong> It
-    punishes the router for being <em>confident</em>, everywhere, all the time
-    &mdash; including on tokens where one expert genuinely is the right answer. It
-    doesn't know which experts are overloaded because it never looks at the actual
-    dispatch. You get a router that is uniformly wishy-washy and still imbalanced.</p>
+    <p><strong>This has a gradient, and it measures the wrong thing.</strong> Note
+    what <span class="v">P</span><sub><span class="v">i</span></sub> actually is: a
+    <em>batch mean</em>. It therefore cannot see per-token confidence at all &mdash;
+    the router can be razor-sharp on every individual token and still produce a
+    perfectly flat <span class="v">P</span>, so long as the sharp choices are spread
+    across experts.</p>
+    <p>The real failure is subtler: <strong>a flat soft distribution does not imply a
+    flat hard dispatch.</strong> Experts are chosen by <code>argmax</code>, and an
+    expert can be second-favourite on a great many tokens &mdash; contributing plenty
+    of probability mass to <span class="v">P</span> &mdash; while winning almost none
+    of them. You can balance <span class="v">P</span> perfectly and still have one
+    expert taking every token. And it is the hard dispatch, not the soft
+    distribution, that fills the buffers and burns the FLOPs.</p>
   </div>
 
   <p>So: one term that knows the truth but can't be differentiated, and one that can
@@ -184,10 +221,32 @@
       <span class="op">&middot;</span>
       <span class="hl-active"><span class="v">P</span><sub><span class="v">i</span></sub></span>
     </div>
-    <div class="say">Where <b>f<sub>i</sub></b> is the fraction of tokens dispatched
-    to expert <i>i</i> (eq. 5) and <b>P<sub>i</sub></b> is the fraction of router
-    probability allocated to expert <i>i</i> (eq. 6). Switch uses
-    <b>&alpha; = 10<sup>&minus;2</sup></b>.</div>
+    <div class="say">Switch uses <b>&alpha; = 10<sup>&minus;2</sup></b>, chosen after
+    sweeping 10<sup>&minus;1</sup> down to 10<sup>&minus;5</sup>. The two factors are
+    printed below &mdash; and note they are both <b>batch means</b>, not per-token
+    quantities.</div>
+  </div>
+
+  <div class="eq">
+    <span class="label">Switch, eq. 5 and 6</span>
+    <div class="body">
+      <span class="hl-idle"><span class="v">f</span><sub><span class="v">i</span></sub></span>
+      <span class="op">=</span>
+      <span class="frac"><span>1</span><span><span class="v">T</span></span></span>
+      <span class="big">&Sigma;</span><sub><span class="v">x</span>&isin;&#8492;</sub>
+      &#120793;{argmax <span class="v">p</span>(<span class="v">x</span>) = <span class="v">i</span>}
+      &nbsp;&nbsp;&nbsp;&nbsp;
+      <span class="hl-active"><span class="v">P</span><sub><span class="v">i</span></sub></span>
+      <span class="op">=</span>
+      <span class="frac"><span>1</span><span><span class="v">T</span></span></span>
+      <span class="big">&Sigma;</span><sub><span class="v">x</span>&isin;&#8492;</sub>
+      <span class="v">p</span><sub><span class="v">i</span></sub>(<span class="v">x</span>)
+    </div>
+    <div class="say"><b>f<sub>i</sub></b> counts how many of the <i>T</i> tokens in
+    batch &#8492; had expert <i>i</i> as their <b>argmax</b> &mdash; an indicator, so a
+    hard count. <b>P<sub>i</sub></b> averages the router's <b>probability</b> for
+    expert <i>i</i> over the same tokens. Same denominator, same batch; one is
+    counted, one is averaged, and only the second has a derivative.</div>
   </div>
 
   <p>Now differentiate with respect to the only part that has a gradient. Since
@@ -752,7 +811,12 @@
     });
 
     var ratio = f[0] / f[N - 1];
-    var lossVal = alpha * N * f.reduce(function (a, v) { return a + v * v; }, 0);
+    // The loss is alpha*N*SUM(f_i * P_i), NOT alpha*N*SUM(f_i^2) — conflating the two is
+    // precisely what this chapter warns against. P is the router's soft distribution, so
+    // we model it as f smoothed toward uniform (it still sums to 1 by construction).
+    var LAM = 0.25;
+    var P = f.map(function (v) { return (v + LAM / N) / (1 + LAM); });
+    var lossVal = alpha * N * f.reduce(function (a, v, i) { return a + v * P[i]; }, 0);
     document.getElementById('bno').textContent = N;
     document.getElementById('bao').textContent = alpha.toExponential(0).replace('e-', 'e-');
     document.getElementById('bso').textContent =

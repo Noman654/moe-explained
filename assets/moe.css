@@ -600,3 +600,13 @@ footer.site { border-top: 1px solid var(--rule); margin-top: 4rem; padding: 2rem
 .fixit b { display: block; color: var(--ink); margin-bottom: 0.15rem; }
 .fixit span { color: var(--ink-soft); }
 .fixit a { font-weight: 700; white-space: nowrap; }
+
+/* Background-terms block inside the notation panel — the words the book uses but
+   builds elsewhere. Added after a beginner read the book and listed every one of
+   them as undefined. */
+.booknav details.notation .nsub {
+  margin: 1rem 0 0.1rem; font-size: 0.63rem; font-weight: 700;
+  letter-spacing: 0.11em; text-transform: uppercase; color: var(--ink-faint);
+  border-top: 1px solid var(--rule); padding-top: 0.8rem;
+}
+.booknav details.notation dl.nbg dt { color: var(--ok); font-family: var(--sans); }

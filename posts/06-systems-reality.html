@@ -35,13 +35,13 @@
         <li><a href="05-the-lineage.html">The lineage</a></li>
         <li><a href="06-systems-reality.html" aria-current="page">The systems reality</a>
           <ul class="inchap">
+            <li><a href="#ep">Parallelism, briefly</a></li>
             <li><a href="#ep">Expert parallelism</a></li>
             <li><a href="#alltoall">The two all-to-alls</a></li>
             <li><a href="#cost">What it costs</a></li>
             <li><a href="#nodes">Why exactly four nodes</a></li>
             <li><a href="#precision">The float32 island</a></li>
             <li><a href="#memory">The inference problem</a></li>
-            <li><a href="#memory">Try the break-even</a></li>
           </ul>
         </li>
       </ol>
@@ -60,6 +60,22 @@
           <dt>C</dt><dd>expert capacity, in token slots</dd>
           <dt>d<sub>model</sub></dt><dd>model dimension (4096 in Mixtral)</dd>
           <dt>d<sub>ff</sub></dt><dd>FFN hidden dimension (14336)</dd>
+        </dl>
+        <p class="nsub">Background terms &mdash; used by this book, built elsewhere</p>
+        <dl class="nbg">
+          <dt>token</dt><dd>a chunk of text (~&frac34; of a word) — the unit a model processes</dd>
+          <dt>logit</dt><dd>a raw, unnormalised score, before softmax turns it into a weight</dd>
+          <dt>softmax</dt><dd>turns a list of scores into positive weights that sum to 1</dd>
+          <dt>residual</dt><dd>the "main line" a token travels along; layers add to it rather than replace it, so skipping a layer is harmless</dd>
+          <dt>loss</dt><dd>one number saying how wrong the model was. Training = nudging weights to make it smaller</dd>
+          <dt>gradient</dt><dd>which way to nudge each weight, and how hard, to reduce the loss</dd>
+          <dt>differentiable</dt><dd>has a gradient. A hard count (an argmax, a tally) does not — this is the whole tension in ch.3</dd>
+          <dt>autograd</dt><dd>the machinery that tracks which quantities carry gradients</dd>
+          <dt>cross-entropy</dt><dd>the loss for "predict the next token" — the model's actual job</dd>
+          <dt>collective</dt><dd>an operation every device does together (all-reduce, all-to-all)</dd>
+          <dt>roofline</dt><dd>the ceiling on delivered performance: you are limited by compute or by memory bandwidth, whichever binds first</dd>
+          <dt>machine balance</dt><dd>the crossover between those two, in FLOPs per byte moved (~148 on an H100)</dd>
+          <dt>prefill / decode</dt><dd>reading the prompt all at once vs. generating one token at a time. Decode is the memory-bound one</dd>
         </dl>
         <p class="ncaveat">Careful with <b>E</b>: this book uses it for an expert
         (<b>E<sub>i</sub></b>), but GShard's papers use <b>E</b> for the expert
@@ -86,16 +102,35 @@
   </p>
 
   <p>Everything so far has quietly assumed the model sits somewhere you can reach.
-  It doesn't. DeepSeek-V3's 671B parameters at 8 bytes each would be over five
-  terabytes; even in FP8 it is hundreds of gigabytes against an H800's 80. The experts
+  It doesn't. DeepSeek-V3's 671B parameters at BF16 are <strong>1.34&nbsp;TB</strong>;
+  even at FP8 they are <strong>671&nbsp;GB</strong>, against an H800's 80. The experts
   <em>must</em> be spread across devices. And the instant they are, the router's
   output stops being an index and becomes a <strong>destination</strong>.</p>
 
   <h2 id="ep">Expert parallelism</h2>
 
-  <p>You already know data parallelism (same weights, different data) and tensor
-  parallelism (one matrix split across devices). MoE adds a third axis that is
-  peculiar to it:</p>
+  <div class="rung feel">
+    <span class="tag">If you have never sharded a model, start here</span>
+    <p>The rest of this chapter assumes three ways of splitting one computation across
+    many devices. They take a paragraph.</p>
+    <p><strong>Data parallelism (DP)</strong> &mdash; every device holds the
+    <em>whole</em> model and a different slice of the batch. Cheap and obvious; it
+    fails the moment the model stops fitting on one device.</p>
+    <p><strong>Tensor parallelism (TP)</strong> &mdash; one matrix is <em>cut into
+    pieces</em> across devices, each computing part of every multiply. The pieces must
+    be stitched back together constantly, so TP wants a very fast interconnect.</p>
+    <p><strong>Pipeline parallelism (PP)</strong> &mdash; different <em>layers</em> live
+    on different devices, and activations flow down the chain like a factory line.</p>
+    <p>A <strong>collective</strong> is an operation every device participates in at
+    once. Two matter here: an <strong>all-reduce</strong> (everyone contributes a value,
+    everyone gets the total &mdash; how DP shares gradients) and an
+    <strong>all-to-all</strong> (everyone sends a different piece to everyone else
+    &mdash; the one MoE needs). And when you see a config written
+    <code>PP16&nbsp;&times;&nbsp;EP64</code>, read it as
+    <em>letter&nbsp;=&nbsp;which kind, number&nbsp;=&nbsp;across how many devices</em>.</p>
+  </div>
+
+  <p>With those in hand: MoE adds a third axis that is peculiar to it.</p>
 
   <p class="pull"><strong>Expert parallelism:</strong> different <em>experts</em> live
   on different devices. Nothing is split &mdash; expert 7 sits whole on GPU 3, and if
@@ -159,6 +194,17 @@
 
   <p>GShard measured this, and the numbers are the best argument in the literature for
   why expert count isn't free.</p>
+
+  <div class="rung mech">
+    <span class="tag">Roofline, in one sentence</span>
+    <p>The <strong>roofline</strong> is the ceiling on what a chip can actually deliver:
+    for any given piece of work you are limited either by how fast it computes or by how
+    fast it can feed itself data, whichever binds first. &ldquo;48% of roofline&rdquo;
+    means the hardware achieved under half of what it was capable of on that workload
+    &mdash; the rest was spent waiting. <strong>Machine balance</strong>, which the
+    calculator later in this chapter uses, is the crossover point between those two
+    regimes, measured in FLOPs per byte moved.</p>
+  </div>
 
   <div class="tablewrap">
   <table>
@@ -323,7 +369,7 @@
     <thead><tr><th>Resource</th><th>Scales with</th><th>Verdict for MoE</th></tr></thead>
     <tbody>
       <tr><td>Training compute</td><td>Active parameters</td><td style="color:var(--ok)"><strong>Big win</strong> &mdash; the whole point</td></tr>
-      <tr><td>Model quality</td><td>Total parameters</td><td style="color:var(--ok)"><strong>Win</strong> &mdash; capacity without the FLOPs</td></tr>
+      <tr><td>Model quality</td><td>Total <em>and</em> active, interacting</td><td style="color:var(--ok)"><strong>Win, with a ceiling</strong> &mdash; ch.5: Switch-XXL's 395B beat Switch-C's 1571B</td></tr>
       <tr><td>Inference arithmetic</td><td>Active parameters</td><td style="color:var(--ok)"><strong>Win</strong></td></tr>
       <tr><td>Inference memory</td><td>Total parameters</td><td style="color:var(--danger)"><strong>Loss</strong> &mdash; no discount at all</td></tr>
       <tr><td>Interconnect traffic</td><td>Experts &times; devices</td><td style="color:var(--danger)"><strong>Loss</strong> &mdash; two all-to-alls per pass</td></tr>
@@ -342,10 +388,13 @@
   <div class="tryit">
     <h4>Try it &mdash; find your break-even batch size</h4>
     <p style="font-family:var(--sans);font-size:0.86rem;color:var(--ink-soft);margin-bottom:1rem">
-    At decode you must read every expert's weights from memory but only do arithmetic
-    for the tokens that chose them. Set the architecture and the batch, and see where
-    you land. Exact arithmetic; hardware balance assumed at ~1100 FLOP/byte
-    (roughly an H100: ~990 TFLOP/s fp16 over ~900 GB/s of HBM).</p>
+    At decode you read the weights of every expert something routed to, but only do
+    arithmetic for the tokens that chose them. Set the architecture and the batch and
+    see where you land. Machine balance here is <strong>~148 FLOP/byte</strong>: an
+    H100 SXM at its <em>dense</em> BF16 rate of ~495&nbsp;TFLOP/s over HBM3's
+    3.35&nbsp;TB/s. (Quote the marketing 990&nbsp;TFLOP/s instead and you have quietly
+    assumed 2:4 sparsity you are not getting &mdash; a mistake this widget itself
+    shipped with until a reader caught it.)</p>
 
     <div class="ctl">
       <label for="mn">Routed experts (<span class="v">N</span>)</label>
@@ -366,7 +415,7 @@
     <svg id="aichart" viewBox="0 0 700 120" role="img" aria-label="Arithmetic intensity against the machine balance line, showing whether the configuration is memory-bound or compute-bound." style="width:100%;height:auto;margin:1rem 0"></svg>
 
     <div class="stats" style="margin:0">
-      <div class="stat"><div class="n" id="mTok">&mdash;</div><div class="l">tokens reaching each expert</div></div>
+      <div class="stat"><div class="n" id="mTok">&mdash;</div><div class="l">distinct experts whose weights you must read</div></div>
       <div class="stat"><div class="n" id="mAI">&mdash;</div><div class="l">arithmetic intensity, FLOP/byte</div></div>
       <div class="stat"><div class="n" id="mBE">&mdash;</div><div class="l">batch needed to break even</div></div>
     </div>
@@ -646,7 +695,7 @@
 /* ====== INTERACTIVE — the break-even batch for MoE decode ================= */
 (function () {
   var SVG = 'http://www.w3.org/2000/svg';
-  var BALANCE = 1100;                       // ~H100: 990 TFLOP/s fp16 over 900 GB/s
+  var BALANCE = 148;                        // H100 SXM: ~495 TFLOP/s dense BF16 / 3.35 TB/s
   var chart = document.getElementById('aichart');
   var mn = document.getElementById('mn'), mk = document.getElementById('mk'),
       mb = document.getElementById('mb');
@@ -680,17 +729,21 @@
     var N = +mn.value, k = +mk.value, B = batchOf(+mb.value);
     if (k > N) { mk.value = N; k = N; }
 
-    // Every expert's weights are read once; only B*k token-expert pairs do arithmetic.
-    // Both sides carry the same 2*3*d_model*d_ff factor, so it cancels exactly:
+    // You only read the weights of experts something actually routed to. With B tokens
+    // each picking k of N, the expected number of DISTINCT experts touched is
+    //   E = N * (1 - (1 - k/N)^B)
+    // and intensity = (token-expert pairs) / (experts read). Both sides carry the same
+    // 2*3*d_model*d_ff factor, so it cancels exactly. At B=1 this is k/k = 1 FLOP/byte
+    // -- the classic decode wall -- and it only approaches B*k/N once B*k >> N.
+    var distinct = N * (1 - Math.pow(1 - k / N, B));
     var perExpert = B * k / N;
-    var ai = perExpert;                     // FLOP/byte, after cancellation
+    var ai = (B * k) / distinct;
     var breakEven = Math.ceil(BALANCE * N / k);
 
     document.getElementById('mno').textContent = N;
     document.getElementById('mko').textContent = k;
     document.getElementById('mbo').textContent = B.toLocaleString();
-    document.getElementById('mTok').textContent = perExpert < 1
-      ? perExpert.toFixed(2) : Math.round(perExpert).toLocaleString();
+    document.getElementById('mTok').textContent = distinct.toFixed(1) + ' of ' + N;
     document.getElementById('mAI').textContent = ai < 1 ? ai.toFixed(2) : Math.round(ai).toLocaleString();
     document.getElementById('mBE').textContent = breakEven.toLocaleString();
 
@@ -710,22 +763,25 @@
 
     var note;
     if (B === 1) {
-      note = 'Batch 1 is single-user decode, and it is the worst case by a wide margin: you ' +
-             'read every expert\'s weights to serve one token. This is why nobody serves a ' +
-             'large MoE to one user on one GPU.';
+      note = 'Batch 1 is single-user decode. Note you do NOT read all N experts — only the ' +
+             'k that this token routed to. Intensity is exactly 1 FLOP/byte: you read k whole ' +
+             'FFNs to do k FFNs of work on a single token, with nothing to amortise them ' +
+             'against. That inability to amortise, not the expert count, is what makes ' +
+             'single-user MoE decode bad.';
     } else if (N === 8 && k === 2) {
-      note = 'Mixtral\'s shape. Break-even needs ~' + breakEven.toLocaleString() +
-             ' tokens in flight — and note the arithmetic intensity is exactly the number ' +
-             'of tokens reaching each expert. The two are the same quantity.';
+      note = 'Mixtral\'s shape: break-even at ~' + breakEven.toLocaleString() + ' tokens in ' +
+             'flight. Once the batch is big enough to hit every expert, intensity becomes ' +
+             'exactly the tokens-per-expert ratio B·k/N — before that, you are amortising ' +
+             'over however many experts happened to get touched.';
     } else if (N >= 200 && k === 8) {
       note = 'DeepSeek-V3\'s shape. Fine-grained experts need a far larger batch to stay ' +
-             'compute-bound — ~' + breakEven.toLocaleString() + ' tokens — which is exactly ' +
-             'why it serves at EP320 with hundreds of GPUs and enormous batches.';
+             'compute-bound — ~' + breakEven.toLocaleString() + ' tokens, eight times ' +
+             'Mixtral\'s — which is why it serves at EP320 across hundreds of GPUs.';
     } else if (ok) {
       note = 'Compute-bound. Note what it took: sparsity pushes the required batch up by ' +
              'N/k, so the sparser you go the more concurrent traffic you need to stay here.';
     } else {
-      note = 'Break-even is B = 1100 · N/k. More experts raises it; larger k lowers it. ' +
+      note = 'Break-even is B = 148 · N/k. More experts raises it; larger k lowers it. ' +
              'That single formula is most of what governs whether an MoE is cheap to serve.';
     }
     document.getElementById('mNote').textContent = note;
