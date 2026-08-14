@@ -39,6 +39,7 @@
             <li><a href="#2021">2021 &mdash; the heresy</a></li>
             <li><a href="#2024">2024 &mdash; Mixtral opens the door</a></li>
             <li><a href="#fine">The combinatorial argument</a></li>
+            <li><a href="#fine">Try the split</a></li>
             <li><a href="#shared">Shared experts</a></li>
             <li><a href="#table">The whole family</a></li>
           </ul>
@@ -296,6 +297,38 @@
   associated with excessively small expert sizes&rdquo;</em>. Tiny matrices make bad
   GPU kernels. The combinatorial argument is bounded by hardware &mdash; and duly, once
   the scale justified it, DeepSeek-V3 went to 256 routed experts.</p>
+
+  <div class="tryit">
+    <h4>Try it &mdash; split the experts, keep the FLOPs</h4>
+    <p style="font-family:var(--sans);font-size:0.86rem;color:var(--ink-soft);margin-bottom:1rem">
+    Start from <span class="v">N</span> experts with top-<span class="v">k</span>
+    routing, then cut each expert into <span class="v">m</span> pieces and activate
+    <span class="v">m</span> times as many. Compute and total parameters are held
+    constant by construction &mdash; only the combination count moves.</p>
+
+    <div class="ctl">
+      <label for="fn">Base experts (<span class="v">N</span>)</label>
+      <input type="range" id="fn" min="4" max="64" value="16">
+      <output id="fno">16</output>
+    </div>
+    <div class="ctl">
+      <label for="fk">Activated (<span class="v">k</span>)</label>
+      <input type="range" id="fk" min="1" max="8" value="2">
+      <output id="fko">2</output>
+    </div>
+    <div class="ctl">
+      <label for="fm">Split factor (<span class="v">m</span>)</label>
+      <input type="range" id="fm" min="1" max="8" value="4">
+      <output id="fmo">4</output>
+    </div>
+
+    <div class="stats" style="margin:0">
+      <div class="stat"><div class="n" id="gBefore">120</div><div class="l">combinations before splitting</div></div>
+      <div class="stat"><div class="n" id="gAfter">4.43e9</div><div class="l">combinations after</div></div>
+      <div class="stat"><div class="n" id="gRatio">3.7e7&times;</div><div class="l">gain, at identical FLOPs</div></div>
+    </div>
+    <p id="gNote" style="font-family:var(--sans);font-size:0.82rem;color:var(--ink-soft);margin:0.9rem 0 0"></p>
+  </div>
 
   <h2 id="shared">Shared experts, and the thing they don't have</h2>
 
@@ -561,6 +594,57 @@
   }
   addEventListener('scroll', upd, { passive: true });
   addEventListener('resize', upd); upd();
+})();
+
+
+/* ====== INTERACTIVE — the combinatorial explorer ========================== */
+(function () {
+  function logC(n, k) {                     // log-space, so big values don't overflow
+    if (k < 0 || k > n) return -Infinity;
+    var t = 0;
+    for (var i = 1; i <= k; i++) t += Math.log(n - k + i) - Math.log(i);
+    return t;
+  }
+  function fmt(lg) {
+    if (lg === -Infinity) return '0';
+    var e = lg / Math.LN10, mant = Math.pow(10, e - Math.floor(e));
+    if (e < 6) return Math.round(Math.exp(lg)).toLocaleString();
+    return mant.toFixed(2) + 'e' + Math.floor(e);
+  }
+  var fn = document.getElementById('fn'), fk = document.getElementById('fk'),
+      fm = document.getElementById('fm');
+
+  function render() {
+    var N = +fn.value, k = +fk.value, m = +fm.value;
+    if (k > N) { fk.value = N; k = N; }
+    var before = logC(N, k), after = logC(N * m, k * m);
+    document.getElementById('fno').textContent = N;
+    document.getElementById('fko').textContent = k;
+    document.getElementById('fmo').textContent = m;
+    document.getElementById('gBefore').textContent = fmt(before);
+    document.getElementById('gAfter').textContent = fmt(after);
+    document.getElementById('gRatio').innerHTML = fmt(after - before) + '&times;';
+
+    var note;
+    if (m === 1) {
+      note = 'Split factor 1 changes nothing — this is the baseline architecture.';
+    } else if (N === 16 && k === 2 && m === 4) {
+      note = 'This is DeepSeekMoE\'s worked example exactly: C(16,2) = 120 becomes ' +
+             'C(64,8) = 4,426,165,368. Same FLOPs, same total parameters, ~37 million ' +
+             'times the reachable routings.';
+    } else if (k * m > N * m / 2) {
+      note = 'You are now activating more than half of all experts. The combination count ' +
+             'starts falling again — C(n,k) peaks at k = n/2 — and you have given up most ' +
+             'of the sparsity that made this worth doing.';
+    } else {
+      note = 'Both compute (k×m expert-units of 1/m size each) and total parameters ' +
+             '(N×m experts of 1/m size) are unchanged. Only reachable combinations move — ' +
+             'which is why the paper calls this combinatorial flexibility, not extra capacity.';
+    }
+    document.getElementById('gNote').textContent = note;
+  }
+  [fn, fk, fm].forEach(function (el) { el.addEventListener('input', render); });
+  render();
 })();
 
 /* ================= ANIMATION — the argument, in order ==================== */

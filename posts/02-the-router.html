@@ -35,6 +35,7 @@
             <li><a href="#job">The job</a></li>
             <li><a href="#gradient">Why the gate must multiply</a></li>
             <li><a href="#ordering">The ordering nobody mentions</a></li>
+            <li><a href="#ordering">Try the ordering</a></li>
             <li><a href="#noisy">Noisy top-k</a></li>
             <li><a href="#reality">What routing actually looks like</a></li>
           </ul>
@@ -337,6 +338,34 @@
   DeepSeek-V3 follows the same logic, normalising its 8 selected gates so they sum to
   1 (we'll do that equation properly in <a href="03-load-balancing.html">chapter 3</a>,
   because its selection rule has a twist).</p>
+
+  <div class="tryit">
+    <h4>Try it &mdash; when does the ordering actually matter?</h4>
+    <p style="font-family:var(--sans);font-size:0.86rem;color:var(--ink-soft);margin-bottom:1rem">
+    Same eight logits, scaled by how <em>decisive</em> the router is, and your choice of
+    <span class="v">k</span>. Watch the gap between the two schemes. Exact softmax
+    arithmetic on the numbers shown.</p>
+
+    <div class="ctl">
+      <label for="rt">Router decisiveness</label>
+      <input type="range" id="rt" min="15" max="300" value="100">
+      <output id="rto">1.00&times;</output>
+    </div>
+    <div class="ctl">
+      <label for="rk">Experts kept (<span class="v">k</span>)</label>
+      <input type="range" id="rk" min="1" max="6" value="2">
+      <output id="rko">2</output>
+    </div>
+
+    <svg id="ordchart" viewBox="0 0 700 200" role="img" aria-label="The winning expert&apos;s gate value under both orderings as router decisiveness and k vary." style="width:100%;height:auto;margin:1rem 0"></svg>
+
+    <div class="stats" style="margin:0">
+      <div class="stat"><div class="n" id="oSw">&mdash;</div><div class="l">Switch: softmax over all 8</div></div>
+      <div class="stat"><div class="n" id="oMx">&mdash;</div><div class="l">Mixtral: softmax over top-k</div></div>
+      <div class="stat"><div class="n" id="oGap">&mdash;</div><div class="l">difference on the same expert</div></div>
+    </div>
+    <p id="oNote" style="font-family:var(--sans);font-size:0.82rem;color:var(--ink-soft);margin:0.9rem 0 0"></p>
+  </div>
 
   <h2 id="noisy">Noisy top-k, and what the noise is for</h2>
 
@@ -685,6 +714,105 @@
       v2.textContent = s >= 5 ? '∂L/∂W_g = 0  — the router is frozen' : '';
     }
   });
+})();
+
+
+/* ====== INTERACTIVE — when the two orderings actually differ ============== */
+(function () {
+  var SVG = 'http://www.w3.org/2000/svg';
+  var L = [0.8, -0.3, 2.1, 0.5, -1.2, 1.4, 0.2, -0.6];
+  var ORDER = L.map(function (v, i) { return [v, i]; })
+               .sort(function (a, b) { return b[0] - a[0]; })
+               .map(function (p) { return p[1]; });
+  var chart = document.getElementById('ordchart');
+  var rt = document.getElementById('rt'), rk = document.getElementById('rk');
+  var cells = [];
+
+  for (var i = 0; i < 8; i++) {
+    var x = 30 + i * 82;
+    var track = document.createElementNS(SVG, 'rect');
+    track.setAttribute('x', x); track.setAttribute('y', 40);
+    track.setAttribute('width', 64); track.setAttribute('height', 100);
+    track.setAttribute('rx', 4); track.setAttribute('fill', 'var(--bg-sunken)');
+    track.setAttribute('stroke', 'var(--rule)');
+    chart.appendChild(track);
+    var sw = document.createElementNS(SVG, 'rect');
+    sw.setAttribute('x', x + 4); sw.setAttribute('width', 26); sw.setAttribute('rx', 3);
+    sw.setAttribute('fill', 'var(--router)'); chart.appendChild(sw);
+    var mx = document.createElementNS(SVG, 'rect');
+    mx.setAttribute('x', x + 34); mx.setAttribute('width', 26); mx.setAttribute('rx', 3);
+    mx.setAttribute('fill', 'var(--active)'); chart.appendChild(mx);
+    var lab = document.createElementNS(SVG, 'text');
+    lab.setAttribute('x', x + 32); lab.setAttribute('y', 158);
+    lab.setAttribute('text-anchor', 'middle'); lab.setAttribute('font-family', 'var(--sans)');
+    lab.setAttribute('font-size', '10'); lab.setAttribute('fill', 'var(--ink-faint)');
+    lab.textContent = 'E' + (i + 1); chart.appendChild(lab);
+    var val = document.createElementNS(SVG, 'text');
+    val.setAttribute('x', x + 32); val.setAttribute('y', 172);
+    val.setAttribute('text-anchor', 'middle'); val.setAttribute('font-family', 'var(--mono)');
+    val.setAttribute('font-size', '9'); chart.appendChild(val);
+    cells.push({ sw: sw, mx: mx, lab: lab, val: val });
+  }
+  var key = document.createElementNS(SVG, 'text');
+  key.setAttribute('x', 30); key.setAttribute('y', 24);
+  key.setAttribute('font-family', 'var(--sans)'); key.setAttribute('font-size', '10.5');
+  key.innerHTML = '';
+  key.textContent = 'left bar = Switch ordering    right bar = Mixtral ordering';
+  key.setAttribute('fill', 'var(--ink-faint)');
+  chart.appendChild(key);
+
+  function render() {
+    var scale = +rt.value / 100, k = +rk.value;
+    var E = L.map(function (v) { return Math.exp(v * scale); });
+    var all = E.reduce(function (a, b) { return a + b; }, 0);
+    var top = ORDER.slice(0, k);
+    var den = top.reduce(function (a, i) { return a + E[i]; }, 0);
+
+    cells.forEach(function (c, i) {
+      var pSw = E[i] / all;
+      var kept = top.indexOf(i) >= 0;
+      var pMx = kept ? E[i] / den : 0;
+      var hs = pSw * 100, hm = pMx * 100;
+      c.sw.setAttribute('y', 140 - hs); c.sw.setAttribute('height', hs);
+      c.mx.setAttribute('y', 140 - hm); c.mx.setAttribute('height', hm);
+      c.mx.setAttribute('fill', kept ? 'var(--active)' : 'var(--idle-soft)');
+      c.lab.setAttribute('fill', kept ? 'var(--active)' : 'var(--ink-faint)');
+      c.lab.setAttribute('font-weight', kept ? '700' : '400');
+      c.val.setAttribute('fill', kept ? 'var(--active)' : 'var(--ink-faint)');
+      c.val.textContent = kept ? pMx.toFixed(2) : '—';
+    });
+
+    var win = ORDER[0], gSw = E[win] / all, gMx = E[win] / den;
+    document.getElementById('rto').innerHTML = scale.toFixed(2) + '&times;';
+    document.getElementById('rko').textContent = k;
+    document.getElementById('oSw').textContent = gSw.toFixed(3);
+    document.getElementById('oMx').textContent = gMx.toFixed(3);
+    document.getElementById('oGap').textContent = '+' + (gMx - gSw).toFixed(3);
+
+    var note;
+    if (k === 8) {
+      note = 'At k = N the two schemes are identical — the denominators are the same sum. ' +
+             'Every difference between them exists only because some experts were discarded.';
+    } else if (scale < 0.4) {
+      note = 'An indecisive router is where the schemes disagree most. Switch spreads the ' +
+             'probability across all eight, so the winner\'s gate collapses toward 1/8 and ' +
+             'the layer quietly contributes less. Mixtral renormalises, so its gates still ' +
+             'sum to 1 and the layer contributes fully — confidence information is discarded.';
+    } else if (scale > 2.2) {
+      note = 'A decisive router makes the choice almost moot: the winner already holds most ' +
+             'of the probability mass, so renormalising barely changes it. The two schemes ' +
+             'converge exactly when the routing decision is easy.';
+    } else {
+      note = 'Notice the gap shrinks as the router grows more decisive. The ordering matters ' +
+             'most precisely when the router is unsure — which is also when a token is most ' +
+             'likely to be borderline between experts.';
+    }
+    document.getElementById('oNote').textContent = note;
+  }
+
+  rt.addEventListener('input', render);
+  rk.addEventListener('input', render);
+  render();
 })();
 
 /* ============ ANIMATION 2 — softmax before vs after the top-k ============= */

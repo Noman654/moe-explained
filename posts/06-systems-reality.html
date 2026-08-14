@@ -41,6 +41,7 @@
             <li><a href="#nodes">Why exactly four nodes</a></li>
             <li><a href="#precision">The float32 island</a></li>
             <li><a href="#memory">The inference problem</a></li>
+            <li><a href="#memory">Try the break-even</a></li>
           </ul>
         </li>
       </ol>
@@ -338,6 +339,40 @@
   by the paper's own reckoning. On a single GPU serving one user, where memory is the
   binding constraint, the same trade is bad.</p>
 
+  <div class="tryit">
+    <h4>Try it &mdash; find your break-even batch size</h4>
+    <p style="font-family:var(--sans);font-size:0.86rem;color:var(--ink-soft);margin-bottom:1rem">
+    At decode you must read every expert's weights from memory but only do arithmetic
+    for the tokens that chose them. Set the architecture and the batch, and see where
+    you land. Exact arithmetic; hardware balance assumed at ~1100 FLOP/byte
+    (roughly an H100: ~990 TFLOP/s fp16 over ~900 GB/s of HBM).</p>
+
+    <div class="ctl">
+      <label for="mn">Routed experts (<span class="v">N</span>)</label>
+      <input type="range" id="mn" min="8" max="256" step="8" value="8">
+      <output id="mno">8</output>
+    </div>
+    <div class="ctl">
+      <label for="mk">Activated (<span class="v">k</span>)</label>
+      <input type="range" id="mk" min="1" max="8" value="2">
+      <output id="mko">2</output>
+    </div>
+    <div class="ctl">
+      <label for="mb">Batch (tokens)</label>
+      <input type="range" id="mb" min="0" max="100" value="0">
+      <output id="mbo">1</output>
+    </div>
+
+    <svg id="aichart" viewBox="0 0 700 120" role="img" aria-label="Arithmetic intensity against the machine balance line, showing whether the configuration is memory-bound or compute-bound." style="width:100%;height:auto;margin:1rem 0"></svg>
+
+    <div class="stats" style="margin:0">
+      <div class="stat"><div class="n" id="mTok">&mdash;</div><div class="l">tokens reaching each expert</div></div>
+      <div class="stat"><div class="n" id="mAI">&mdash;</div><div class="l">arithmetic intensity, FLOP/byte</div></div>
+      <div class="stat"><div class="n" id="mBE">&mdash;</div><div class="l">batch needed to break even</div></div>
+    </div>
+    <p id="mNote" style="font-family:var(--sans);font-size:0.82rem;color:var(--ink-soft);margin:0.9rem 0 0"></p>
+  </div>
+
   <div class="rung research">
     <span class="tag">How the frontier actually serves it</span>
     <p>DeepSeek-V3's serving stack is a different machine from its training stack. No
@@ -605,6 +640,98 @@
       } else { v1.textContent = ''; v2.textContent = ''; }
     }
   });
+})();
+
+
+/* ====== INTERACTIVE — the break-even batch for MoE decode ================= */
+(function () {
+  var SVG = 'http://www.w3.org/2000/svg';
+  var BALANCE = 1100;                       // ~H100: 990 TFLOP/s fp16 over 900 GB/s
+  var chart = document.getElementById('aichart');
+  var mn = document.getElementById('mn'), mk = document.getElementById('mk'),
+      mb = document.getElementById('mb');
+
+  // log batch slider: 1 .. 262144
+  function batchOf(v) { return Math.round(Math.pow(2, v / 100 * 18)); }
+
+  var track = document.createElementNS(SVG, 'rect');
+  track.setAttribute('x', 20); track.setAttribute('y', 40); track.setAttribute('width', 660);
+  track.setAttribute('height', 30); track.setAttribute('rx', 4);
+  track.setAttribute('fill', 'var(--bg-sunken)'); track.setAttribute('stroke', 'var(--rule)');
+  chart.appendChild(track);
+  var fill = document.createElementNS(SVG, 'rect');
+  fill.setAttribute('x', 20); fill.setAttribute('y', 40); fill.setAttribute('height', 30);
+  fill.setAttribute('rx', 4); chart.appendChild(fill);
+  var bal = document.createElementNS(SVG, 'line');
+  bal.setAttribute('y1', 32); bal.setAttribute('y2', 78);
+  bal.setAttribute('stroke', 'var(--router)'); bal.setAttribute('stroke-width', '2');
+  bal.setAttribute('stroke-dasharray', '4 3'); chart.appendChild(bal);
+  var balT = document.createElementNS(SVG, 'text');
+  balT.setAttribute('y', 24); balT.setAttribute('text-anchor', 'middle');
+  balT.setAttribute('font-family', 'var(--sans)'); balT.setAttribute('font-size', '10');
+  balT.setAttribute('font-weight', '700'); balT.setAttribute('fill', 'var(--router)');
+  balT.textContent = 'machine balance'; chart.appendChild(balT);
+  var verdict = document.createElementNS(SVG, 'text');
+  verdict.setAttribute('x', 20); verdict.setAttribute('y', 100);
+  verdict.setAttribute('font-family', 'var(--sans)'); verdict.setAttribute('font-size', '12');
+  verdict.setAttribute('font-weight', '700'); chart.appendChild(verdict);
+
+  function render() {
+    var N = +mn.value, k = +mk.value, B = batchOf(+mb.value);
+    if (k > N) { mk.value = N; k = N; }
+
+    // Every expert's weights are read once; only B*k token-expert pairs do arithmetic.
+    // Both sides carry the same 2*3*d_model*d_ff factor, so it cancels exactly:
+    var perExpert = B * k / N;
+    var ai = perExpert;                     // FLOP/byte, after cancellation
+    var breakEven = Math.ceil(BALANCE * N / k);
+
+    document.getElementById('mno').textContent = N;
+    document.getElementById('mko').textContent = k;
+    document.getElementById('mbo').textContent = B.toLocaleString();
+    document.getElementById('mTok').textContent = perExpert < 1
+      ? perExpert.toFixed(2) : Math.round(perExpert).toLocaleString();
+    document.getElementById('mAI').textContent = ai < 1 ? ai.toFixed(2) : Math.round(ai).toLocaleString();
+    document.getElementById('mBE').textContent = breakEven.toLocaleString();
+
+    // log-scaled bar, 0.1 .. 100000 FLOP/byte
+    var lo = Math.log(0.1), hi = Math.log(100000);
+    var pos = function (v) { return 20 + (Math.log(Math.max(v, 0.1)) - lo) / (hi - lo) * 660; };
+    var w = Math.max(2, pos(ai) - 20);
+    var ok = ai >= BALANCE;
+    fill.setAttribute('width', w);
+    fill.setAttribute('fill', ok ? 'var(--ok)' : 'var(--danger)');
+    bal.setAttribute('x1', pos(BALANCE)); bal.setAttribute('x2', pos(BALANCE));
+    balT.setAttribute('x', pos(BALANCE));
+    verdict.setAttribute('fill', ok ? 'var(--ok)' : 'var(--danger)');
+    verdict.textContent = ok
+      ? 'COMPUTE-BOUND — the GPU is doing arithmetic, which is what you paid for.'
+      : 'MEMORY-BOUND — the GPU is waiting on weights. Most of its FLOPs are idle.';
+
+    var note;
+    if (B === 1) {
+      note = 'Batch 1 is single-user decode, and it is the worst case by a wide margin: you ' +
+             'read every expert\'s weights to serve one token. This is why nobody serves a ' +
+             'large MoE to one user on one GPU.';
+    } else if (N === 8 && k === 2) {
+      note = 'Mixtral\'s shape. Break-even needs ~' + breakEven.toLocaleString() +
+             ' tokens in flight — and note the arithmetic intensity is exactly the number ' +
+             'of tokens reaching each expert. The two are the same quantity.';
+    } else if (N >= 200 && k === 8) {
+      note = 'DeepSeek-V3\'s shape. Fine-grained experts need a far larger batch to stay ' +
+             'compute-bound — ~' + breakEven.toLocaleString() + ' tokens — which is exactly ' +
+             'why it serves at EP320 with hundreds of GPUs and enormous batches.';
+    } else if (ok) {
+      note = 'Compute-bound. Note what it took: sparsity pushes the required batch up by ' +
+             'N/k, so the sparser you go the more concurrent traffic you need to stay here.';
+    } else {
+      note = 'Break-even is B = 1100 · N/k. More experts raises it; larger k lowers it. ' +
+             'That single formula is most of what governs whether an MoE is cheap to serve.';
+    }
+    document.getElementById('mNote').textContent = note;
+  }
+  [mn, mk, mb].forEach(function (el) { el.addEventListener('input', render); });
+  render();
 })();
 
 /* ============ ANIMATION 2 — what scales with what ======================== */
