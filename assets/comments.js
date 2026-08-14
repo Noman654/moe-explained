@@ -32,9 +32,9 @@
   s.crossOrigin = "anonymous";
   var attrs = {
     "data-repo":              "Noman654/moe-explained",
-    "data-repo-id":           "R_kgDOT3T2LQ",
+    "data-repo-id":           "R_kgDOT4sqcQ",
     "data-category":          "Announcements",
-    "data-category-id":       "DIC_kwDOT3T2Lc4DDSa5",
+    "data-category-id":       "DIC_kwDOT4sqcc4DDY5u",
     "data-mapping":           "pathname",   // one thread per chapter
     "data-strict":            "1",
     "data-reactions-enabled": "1",
