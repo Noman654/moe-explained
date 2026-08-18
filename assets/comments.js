@@ -67,7 +67,10 @@
   }
   window.addEventListener("message", function (e) {
     if (e.origin !== "https://giscus.app") return;
-    if (e.data && e.data.giscus && e.data.giscus.error) fallback();
+    var err = e.data && e.data.giscus && e.data.giscus.error;
+    // "Discussion not found" is benign — the thread is created the first time
+    // someone comments or reacts. Only a genuinely fatal error hides the widget.
+    if (err && /not installed|not associated|bad credentials/i.test(err)) fallback();
   });
   setTimeout(function () {
     if (!mount.querySelector("iframe.giscus-frame")) fallback();
