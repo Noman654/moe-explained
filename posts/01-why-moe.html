@@ -397,7 +397,7 @@
   </div>
 
   <div class="eq">
-    <span class="label">Shazeer 2017, eq. 1</span>
+    <span class="label"><a href="https://arxiv.org/abs/1701.06538">Shazeer 2017, eq. 1</a></span>
     <div class="body">
       <span class="v">y</span> &nbsp;<span class="op">=</span>&nbsp;
       <span class="big">&Sigma;</span><sub><span class="v">i</span>=1</sub><sup><span class="v">N</span></sup>
@@ -422,7 +422,7 @@
   <span class="v">k</span>&nbsp;=&nbsp;2, and SwiGLU experts:</p>
 
   <div class="eq">
-    <span class="label">Mixtral, &sect;2.1</span>
+    <span class="label"><a href="https://arxiv.org/abs/2401.04088">Mixtral, &sect;2.1</a></span>
     <div class="body">
       <span class="v">y</span> &nbsp;<span class="op">=</span>&nbsp;
       <span class="big">&Sigma;</span><sub><span class="v">i</span>=0</sub><sup><span class="v">n</span>&minus;1</sup>
@@ -475,7 +475,7 @@
   numbers &mdash; they fall out of the config table, and you can reconstruct them in
   about six lines. Do this once and every MoE announcement becomes legible.</p>
 
-  <p>You need ten numbers, all from the paper's Table 1:</p>
+  <p>You need ten numbers, all from the paper's <a href="https://arxiv.org/abs/2401.04088">Table 1</a>:</p>
 
   <div class="tablewrap">
   <table>
@@ -507,8 +507,8 @@ active <span class="c-key">=</span> layers <span class="c-key">*</span> (top_k  
 <span class="c-com"># 46,701,477,888   12,878,610,432   3.63</span></code></pre>
 
   <div class="stats">
-    <div class="stat"><div class="n">46.70B</div><div class="l">total parameters &mdash; the paper says &ldquo;47B&rdquo;</div></div>
-    <div class="stat"><div class="n">12.88B</div><div class="l">active per token &mdash; the paper says &ldquo;13B&rdquo;</div></div>
+    <div class="stat"><div class="n">46.70B</div><div class="l">total parameters &mdash; <a href="https://arxiv.org/abs/2401.04088">the paper</a> says &ldquo;47B&rdquo;</div></div>
+    <div class="stat"><div class="n">12.88B</div><div class="l">active per token &mdash; <a href="https://arxiv.org/abs/2401.04088">the paper</a> says &ldquo;13B&rdquo;</div></div>
     <div class="stat"><div class="n">3.63&times;</div><div class="l">sparsity ratio: stored &divide; used</div></div>
   </div>
 
@@ -631,11 +631,11 @@ active <span class="c-key">=</span> layers <span class="c-key">*</span> (top_k  
       <th class="num">Ratio</th><th class="num">Experts</th><th class="num">Top-k</th>
     </tr></thead>
     <tbody>
-      <tr><td>Shazeer et al. (2017) <span style="color:var(--ink-faint)">&middot; MoE layer only</span></td><td class="num">137B</td><td class="num">&mdash;</td><td class="num">&mdash;</td><td class="num">131,072</td><td class="num">4</td></tr>
-      <tr><td>Switch-XXL</td><td class="num">395B</td><td class="num">&mdash;</td><td class="num">&mdash;</td><td class="num">64</td><td class="num">1</td></tr>
-      <tr><td>Switch-C</td><td class="num">1571B</td><td class="num">&mdash;</td><td class="num">&mdash;</td><td class="num">2048</td><td class="num">1</td></tr>
-      <tr><td><strong>Mixtral 8&times;7B</strong></td><td class="num">46.7B</td><td class="num">12.9B</td><td class="num">3.6&times;</td><td class="num">8</td><td class="num">2</td></tr>
-      <tr><td><strong>DeepSeek-V3</strong></td><td class="num">671B</td><td class="num">37B</td><td class="num">18.1&times;</td><td class="num">256 + 1</td><td class="num">8</td></tr>
+      <tr><td><a href="https://arxiv.org/abs/1701.06538">Shazeer et al. (2017)</a> <span style="color:var(--ink-faint)">&middot; MoE layer only</span></td><td class="num">137B</td><td class="num">&mdash;</td><td class="num">&mdash;</td><td class="num">131,072</td><td class="num">4</td></tr>
+      <tr><td><a href="https://arxiv.org/abs/2101.03961">Switch-XXL</a></td><td class="num">395B</td><td class="num">&mdash;</td><td class="num">&mdash;</td><td class="num">64</td><td class="num">1</td></tr>
+      <tr><td><a href="https://arxiv.org/abs/2101.03961">Switch-C</a></td><td class="num">1571B</td><td class="num">&mdash;</td><td class="num">&mdash;</td><td class="num">2048</td><td class="num">1</td></tr>
+      <tr><td><strong><a href="https://arxiv.org/abs/2401.04088">Mixtral 8&times;7B</a></strong></td><td class="num">46.7B</td><td class="num">12.9B</td><td class="num">3.6&times;</td><td class="num">8</td><td class="num">2</td></tr>
+      <tr><td><strong><a href="https://arxiv.org/abs/2412.19437">DeepSeek-V3</a></strong></td><td class="num">671B</td><td class="num">37B</td><td class="num">18.1&times;</td><td class="num">256 + 1</td><td class="num">8</td></tr>
     </tbody>
   </table>
   </div>
@@ -710,7 +710,7 @@ active <span class="c-key">=</span> layers <span class="c-key">*</span> (top_k  
     <p>What they <em>did</em> find was <strong>syntactic</strong> structure &mdash;
     the token <code>self</code> in Python and the token <code>Question</code> in
     English each route consistently, regardless of surrounding topic &mdash; and
-    strong <strong>positional locality</strong>. Read Table 5 carefully, because it holds
+    strong <strong>positional locality</strong>. Read <a href="https://arxiv.org/abs/2401.04088">Table 5</a> carefully, because it holds
     two different measures: at layer 15, <strong>24&ndash;28%</strong> of consecutive
     tokens get the same <em>top-1</em> expert, against the paper's stated 12.5% random
     baseline &mdash; while <strong>62&ndash;67%</strong> share an expert among either

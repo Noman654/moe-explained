@@ -225,7 +225,7 @@
   <p class="pull">Multiply them together.</p>
 
   <div class="eq">
-    <span class="label">Switch Transformers, eq. 4</span>
+    <span class="label"><a href="https://arxiv.org/abs/2101.03961">Switch Transformers, eq. 4</a></span>
     <div class="body">
       loss &nbsp;<span class="op">=</span>&nbsp;
       <span class="hl-router">&alpha;</span> <span class="op">&middot;</span>
@@ -242,7 +242,7 @@
   </div>
 
   <div class="eq">
-    <span class="label">Switch, eq. 5 and 6</span>
+    <span class="label"><a href="https://arxiv.org/abs/2101.03961">Switch, eq. 5 and 6</a></span>
     <div class="body">
       <span class="hl-idle"><span class="v">f</span><sub><span class="v">i</span></sub></span>
       <span class="op">=</span>
@@ -370,7 +370,7 @@
 
   <div class="rung research">
     <span class="tag">Research note</span>
-    <p>ST-MoE puts a number on it: bfloat16 has <em>&ldquo;up to 65,536x worse
+    <p><a href="https://arxiv.org/abs/2202.08906">ST-MoE</a> puts a number on it: bfloat16 has <em>&ldquo;up to 65,536x worse
     roundoff errors than float32.&rdquo;</em> And because the router's job ends in an
     exponential, those errors get amplified &mdash; the paper's own example is that a
     roundoff error of <strong>0.5</strong> in bfloat16 <em>&ldquo;will alter the
@@ -385,7 +385,7 @@
   auxiliary term whose only purpose is to keep the logits small:</p>
 
   <div class="eq">
-    <span class="label">ST-MoE, router z-loss</span>
+    <span class="label"><a href="https://arxiv.org/abs/2202.08906">ST-MoE, router z-loss</a></span>
     <div class="body">
       <span class="v">L</span><sub><span class="v">z</span></sub>(<span class="v">x</span>)
       &nbsp;<span class="op">=</span>&nbsp;
@@ -407,7 +407,7 @@
   representable:</p>
 
   <div class="eq">
-    <span class="label">ST-MoE, total loss</span>
+    <span class="label"><a href="https://arxiv.org/abs/2202.08906">ST-MoE, total loss</a></span>
     <div class="body">
       <span class="v">L</span><sub>tot</sub> <span class="op">=</span>
       <span class="v">L</span><sub>CE</sub> <span class="op">+</span>
@@ -436,7 +436,7 @@
   <strong>bias</strong> per expert, used only when deciding who wins:</p>
 
   <div class="eq">
-    <span class="label">DeepSeek-V3, &sect;2.1.2</span>
+    <span class="label"><a href="https://arxiv.org/abs/2412.19437">DeepSeek-V3, &sect;2.1.2</a></span>
     <div class="body">
       <span class="v">g</span>&prime;<sub><span class="v">i,t</span></sub> <span class="op">=</span>
       <span class="hl-active"><span class="v">s</span><sub><span class="v">i,t</span></sub></span>
@@ -460,7 +460,7 @@
   <span class="v">k</span>&nbsp;&gt;&nbsp;1:</p>
 
   <div class="eq">
-    <span class="label">DeepSeek-V3, affinity and normalisation</span>
+    <span class="label"><a href="https://arxiv.org/abs/2412.19437">DeepSeek-V3, affinity and normalisation</a></span>
     <div class="body">
       <span class="v">s</span><sub><span class="v">i,t</span></sub> <span class="op">=</span>
       <span class="hl-router">Sigmoid</span>(<span class="v">u</span><sub><span class="v">t</span></sub><sup>T</sup>
@@ -512,7 +512,7 @@
   <em>&ldquo;mainly relies on the auxiliary-loss-free strategy for load balance,&rdquo;</em>
   but <em>&ldquo;to prevent extreme imbalance within any single sequence, we also
   employ a complementary sequence-wise balance loss.&rdquo;</em> A Switch-shaped term
-  survives, scoped per <em>sequence</em> rather than per batch. &sect;2.1.2 describes
+  survives, scoped per <em>sequence</em> rather than per batch. <a href="https://arxiv.org/abs/2412.19437">&sect;2.1.2</a> describes
   its &alpha; only as <em>&ldquo;an extremely small value&rdquo;</em>, but &sect;4.2
   gives the number: <strong>&alpha; = 0.0001</strong>, <em>&ldquo;just to avoid extreme
   imbalance within any single sequence&rdquo;</em> &mdash; a hundred times smaller than

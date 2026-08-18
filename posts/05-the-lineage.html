@@ -186,7 +186,7 @@
   &mdash; and this is new &mdash; parallelism: <em>&ldquo;a sequential implementation
   of the gating function would keep most of the computational resources idle.&rdquo;</em></p>
 
-  <p>GShard is where MoE stops being a modelling idea and becomes a
+  <p><a href="https://arxiv.org/abs/2006.16668">GShard</a> is where MoE stops being a modelling idea and becomes a
   <em>distributed-systems</em> idea. Local group dispatching, expert capacity as a
   first-class quantity, sharding annotations in the compiler &mdash; the entire
   vocabulary of <a href="04-capacity-factor.html">chapter 4</a> arrives here.</p>
@@ -303,7 +303,7 @@
   changes is how many <em>distinct combinations</em> of experts a token can reach:</p>
 
   <div class="eq">
-    <span class="label">DeepSeekMoE, &sect;3.1</span>
+    <span class="label"><a href="https://arxiv.org/abs/2401.06066">DeepSeekMoE, &sect;3.1</a></span>
     <div class="body">
       <span class="hl-idle">C(16, 2)</span> <span class="op">=</span> 120
       &nbsp;&nbsp;&nbsp;<span class="op">&rarr;</span>&nbsp;&nbsp;&nbsp;

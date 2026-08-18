@@ -232,6 +232,11 @@ a:focus-visible, summary:focus-visible, button:focus-visible {
   float: right; font-size: 0.82rem; color: var(--ink-faint);
   font-style: italic; padding: 0 0 0.6rem 1rem;
 }
+.eq .label a {
+  color: inherit;
+  text-decoration-color: color-mix(in srgb, var(--ink-faint) 55%, transparent);
+}
+.eq .label a:hover { color: var(--ink-soft); }
 
 /* math bits */
 .v   { font-style: italic; }

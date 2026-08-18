@@ -161,7 +161,7 @@
   <p>Step one is unremarkable. Multiply by a matrix, softmax the result:</p>
 
   <div class="eq">
-    <span class="label">Shazeer 2017, softmax gating</span>
+    <span class="label"><a href="https://arxiv.org/abs/1701.06538">Shazeer 2017, softmax gating</a></span>
     <div class="body">
       <span class="v">G</span><sub>&sigma;</sub>(<span class="v">x</span>)
       &nbsp;<span class="op">=</span>&nbsp;
@@ -198,7 +198,7 @@
   like nothing at all. Recall the layer output from chapter 1:</p>
 
   <div class="eq">
-    <span class="label">Shazeer 2017, eq. 1</span>
+    <span class="label"><a href="https://arxiv.org/abs/1701.06538">Shazeer 2017, eq. 1</a></span>
     <div class="body">
       <span class="v">y</span> &nbsp;<span class="op">=</span>&nbsp;
       <span class="big">&Sigma;</span><sub><span class="v">i</span></sub>
@@ -287,7 +287,7 @@
   explainer flattens the two into one.</p>
 
   <div class="eq">
-    <span class="label">Switch, eq. 1 &mdash; softmax first</span>
+    <span class="label"><a href="https://arxiv.org/abs/2101.03961">Switch, eq. 1 &mdash; softmax first</a></span>
     <div class="body">
       <span class="v">p</span><sub><span class="v">i</span></sub>(<span class="v">x</span>)
       &nbsp;<span class="op">=</span>&nbsp;
@@ -301,7 +301,7 @@
   </div>
 
   <div class="eq">
-    <span class="label">Mixtral, &sect;2.1 &mdash; top-k first</span>
+    <span class="label"><a href="https://arxiv.org/abs/2401.04088">Mixtral, &sect;2.1 &mdash; top-k first</a></span>
     <div class="body">
       <span class="hl-router">Softmax</span>(<span class="hl-active">Top2</span>(<span class="v">x</span>
       <span class="op">&middot;</span> <span class="v">W</span><sub><span class="v">g</span></sub>))
@@ -403,7 +403,7 @@
   injected before the selection.</p>
 
   <div class="eq">
-    <span class="label">Shazeer 2017, noisy top-k</span>
+    <span class="label"><a href="https://arxiv.org/abs/1701.06538">Shazeer 2017, noisy top-k</a></span>
     <div class="body">
       <span class="v">H</span>(<span class="v">x</span>)<sub><span class="v">i</span></sub>
       &nbsp;<span class="op">=</span>&nbsp;
@@ -423,7 +423,7 @@
   <span class="v">k</span> sent to negative infinity so the softmax zeroes it:</p>
 
   <div class="eq">
-    <span class="label">Shazeer 2017, KeepTopK</span>
+    <span class="label"><a href="https://arxiv.org/abs/1701.06538">Shazeer 2017, KeepTopK</a></span>
     <div class="body">
       KeepTopK(<span class="v">v</span>, <span class="v">k</span>)<sub><span class="v">i</span></sub>
       &nbsp;<span class="op">=</span>&nbsp;
@@ -438,7 +438,7 @@
   </div>
 
   <p>So why deliberately corrupt the scores? The paper's own answer is narrower and
-  more interesting than the one usually given. &sect;2.1 says only that
+  more interesting than the one usually given. <a href="https://arxiv.org/abs/2401.04088">&sect;2.1</a> says only that
   <em>&ldquo;the noise term helps with load balancing, as will be discussed in
   Appendix A&rdquo;</em> &mdash; and Appendix A gives the mechanism: the noise is what
   makes <strong>Load(X) a smooth, differentiable estimator</strong> of how many
@@ -470,7 +470,7 @@
     lexically peculiar rather than because it is mathematical.</p>
     <p>What they did find was <strong>syntactic</strong>: the token <code>self</code>
     in Python and <code>Question</code> in English each route consistently regardless
-    of surrounding topic. And <strong>positional locality</strong>. Table 5 reports two
+    of surrounding topic. And <strong>positional locality</strong>. <a href="https://arxiv.org/abs/2401.04088">Table 5</a> reports two
     distinct measures and it is worth keeping them apart: at layer 15,
     <strong>24&ndash;28%</strong> of consecutive tokens share the same <em>top-1</em>
     expert, against the paper's stated 12.5% random baseline &mdash; and

@@ -23,30 +23,29 @@
 <style>
   .hero { padding-bottom: 1rem; }
   .toc { list-style: none; padding: 0; margin: 2.5rem 0 0; counter-reset: post; }
-  .toc li { margin: 0 0 0.5rem; padding: 0; }
+  .toc li { margin: 0; border-top: 1px solid var(--rule); }
+  .toc li:last-child { border-bottom: 1px solid var(--rule); }
   .toc a {
-    display: block; text-decoration: none; color: inherit;
-    border: 1px solid var(--rule); border-radius: var(--radius);
-    padding: 1.15rem 1.3rem 1.15rem 3.6rem; position: relative;
-    background: var(--bg-raised); transition: border-color .15s, transform .15s;
+    display: grid; grid-template-columns: 2.2rem 1fr auto; column-gap: 0.9rem;
+    align-items: baseline; text-decoration: none; color: inherit;
+    padding: 1.1rem 0.2rem 1.15rem;
   }
-  .toc a:hover { border-color: var(--router); transform: translateX(2px); }
   .toc a::before {
     counter-increment: post; content: counter(post);
-    position: absolute; left: 1.3rem; top: 1.1rem;
-    font-family: var(--sans); font-size: 1.15rem; font-weight: 700;
-    color: var(--router); font-variant-numeric: tabular-nums;
+    font-family: var(--sans); font-size: 0.95rem;
+    color: var(--ink-faint); font-variant-numeric: tabular-nums;
   }
-  .toc .t { display: block; font-weight: 700; font-size: 1.1rem; letter-spacing: -0.01em;
-            margin-bottom: 0.25rem; }
-  .toc .d { display: block; font-family: var(--sans); font-size: 0.86rem;
-            line-height: 1.5; color: var(--ink-soft); }
-  .toc .s { display: inline-block; font-family: var(--sans); font-size: 0.66rem;
-            font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase;
-            margin-top: 0.6rem; padding: 0.12rem 0.5rem; border-radius: 20px; }
-  .toc .live { background: var(--ok-soft); color: var(--ok); }
-  .toc .soon { background: var(--idle-soft); color: var(--ink-faint); }
-  .toc a.pending { opacity: 0.72; }
+  .toc .t { font-family: var(--sans); font-weight: 700; font-size: 1.08rem;
+            letter-spacing: -0.015em; }
+  .toc a:hover .t { text-decoration: underline; text-decoration-thickness: 1px;
+                    text-underline-offset: 3px; }
+  .toc .start { font-family: var(--sans); font-weight: 400; font-style: italic;
+                font-size: 0.82rem; color: var(--ink-faint); margin-left: 0.6rem;
+                white-space: nowrap; }
+  .toc .d { grid-column: 2; font-family: var(--sans); font-size: 0.87rem;
+            line-height: 1.5; color: var(--ink-soft); margin-top: 0.35rem; }
+  .toc .m { font-family: var(--sans); font-size: 0.8rem; color: var(--ink-faint);
+            font-variant-numeric: tabular-nums; white-space: nowrap; }
   .ladder { display: grid; gap: 0.7rem; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
             margin: 1.6rem 0 0; }
   .ladder div { border-left: 3px solid; padding: 0.15rem 0 0.15rem 0.8rem;
@@ -56,7 +55,6 @@
               letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 0.25rem; }
   .ladder b::before { content: ""; flex: none; width: 9px; height: 9px;
                       border-radius: 2px; background: currentColor; }
-  .toc .t { font-family: var(--sans); letter-spacing: -0.018em; }
 </style>
 </head>
 <body>
@@ -119,60 +117,46 @@
   <p><strong>Writing MoE kernels for a living?</strong> This book is a synthesis, not
   research — it will not tell you anything new. For the kernel layer proper, go to
   <a href="https://arxiv.org/abs/2211.15841">MegaBlocks</a> (dropless MoE, which
-  chapter 4 does not cover) and DeepSeek's DeepEP. What chapter 6 offers you is a
+  chapter 4 does not cover) and DeepSeek's <a href="https://github.com/deepseek-ai/DeepEP">DeepEP</a>. What chapter 6 offers you is a
   compact statement of the arithmetic, not an implementation.</p>
 
   <h2 id="posts">The six chapters</h2>
 
   <ol class="toc">
     <li><a href="posts/01-why-moe.html">
-      <span class="t">Every token pays full price</span>
-      <span class="d">The feed-forward network holds most of a transformer's
-      parameters, and every token runs all of it. Conditional computation breaks that
-      weld — and you'll derive Mixtral's 47B/13B yourself from ten config
-      numbers.</span>
-      <span class="s live">Read now · 16 min</span>
+      <span class="t">Every token pays full price <em class="start">Start here</em></span>
+      <span class="m">16 min</span>
+      <span class="d">Why MoE exists — and you derive Mixtral's 47B-total, 13B-active spec sheet yourself from ten config numbers.</span>
     </a></li>
 
     <li><a href="posts/02-the-router.html">
       <span class="t">The router</span>
-      <span class="d">One small matrix has to make a discrete choice while staying
-      differentiable. That tension explains almost everything that follows — softmax
-      gating, top-k, noisy top-k, and why the gate value must multiply the
-      output.</span>
-      <span class="s live">Read now · 15 min</span>
+      <span class="m">15 min</span>
+      <span class="d">One small matrix must make a discrete choice while staying differentiable — softmax gating, top-k, and the ordering everyone flattens.</span>
     </a></li>
 
     <li><a href="posts/03-load-balancing.html">
       <span class="t">Load balancing, and why experts collapse</span>
-      <span class="d">Left alone, a router picks favourites and the rich get richer.
-      The fix is the most misunderstood equation in MoE — why <code>f<sub>i</sub> ·
-      P<sub>i</sub></code> works when neither factor alone does.</span>
-      <span class="s live">Read now · 18 min</span>
+      <span class="m">18 min</span>
+      <span class="d">Left alone, the router picks favourites. Why f · P corrects it when neither factor alone can.</span>
     </a></li>
 
     <li><a href="posts/04-capacity-factor.html">
       <span class="t">Capacity, and the tokens thrown away</span>
-      <span class="d">Experts live in fixed-size buffers. Overflow one and your token
-      is silently dropped — it skips the FFN and rides the residual to the next
-      layer. Nothing errors. The loss just gets worse.</span>
-      <span class="s live">Read now · 17 min</span>
+      <span class="m">17 min</span>
+      <span class="d">Experts live in fixed-size buffers; overflow one and the token silently skips the FFN. Nothing errors — the loss just gets worse.</span>
     </a></li>
 
     <li><a href="posts/05-the-lineage.html">
       <span class="t">The lineage: Shazeer → Switch → DeepSeek</span>
-      <span class="d">Seven years of the field arguing with itself, as a story. Each
-      paper is a reaction to something specific that hurt about the last one. Ends
-      with why 256 small experts beat 8 big ones.</span>
-      <span class="s live">Read now · 19 min</span>
+      <span class="m">19 min</span>
+      <span class="d">Seven years of the field arguing with itself, each paper a reaction to what hurt about the last one.</span>
     </a></li>
 
     <li><a href="posts/06-systems-reality.html">
       <span class="t">The systems reality</span>
-      <span class="d">The part architecture papers skip. Routing becomes a network
-      operation — two all-to-all collectives in the critical path — and a sparse
-      model has dense-model memory needs.</span>
-      <span class="s live">Read now · 18 min</span>
+      <span class="m">18 min</span>
+      <span class="d">Routing becomes a network operation — two all-to-alls in the critical path — and MoE decode turns memory-bound.</span>
     </a></li>
   </ol>
 

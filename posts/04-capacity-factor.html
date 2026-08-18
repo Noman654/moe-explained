@@ -129,7 +129,7 @@
   arrives:</p>
 
   <div class="eq">
-    <span class="label">Switch Transformers, eq. 3</span>
+    <span class="label"><a href="https://arxiv.org/abs/2101.03961">Switch Transformers, eq. 3</a></span>
     <div class="body">
       expert capacity &nbsp;<span class="op">=</span>&nbsp;
       <span class="frac">
@@ -236,7 +236,7 @@
   <h2 id="lower">The surprise: lower was better</h2>
 
   <p>Intuition says a bigger capacity factor is safer &mdash; more slack, fewer drops,
-  better model. Intuition is wrong, and Switch's Table 1 says so plainly.</p>
+  better model. Intuition is wrong, and Switch's <a href="https://arxiv.org/abs/2101.03961">Table 1</a> says so plainly.</p>
 
   <div class="tablewrap">
   <table>
@@ -260,7 +260,7 @@
   </div>
 
   <p style="font-family:var(--sans);font-size:0.8rem;color:var(--ink-faint)">
-  Switch Transformers, Table 1: 128 experts, experts at every other FFN layer, 32
+  <a href="https://arxiv.org/abs/2101.03961">Switch Transformers, Table 1</a>: 128 experts, experts at every other FFN layer, 32
   TPUv3 cores, 100k steps, quality threshold &minus;1.50 neg. log perplexity. T5-Base
   did not reach the threshold within 100k steps. <strong>Reading the quality column:
   these are negative log perplexities, so <em>less negative is better</em></strong>
@@ -367,7 +367,7 @@
   <p>What if the experts chose instead?</p>
 
   <div class="eq">
-    <span class="label">Expert Choice routing, eq. 2</span>
+    <span class="label"><a href="https://arxiv.org/abs/2202.09368">Expert Choice routing, eq. 2</a></span>
     <div class="body">
       <span class="v">S</span> <span class="op">=</span> Softmax(<span class="v">X</span> <span class="op">&middot;</span> <span class="v">W</span><sub><span class="v">g</span></sub>)
       &nbsp;&nbsp;&nbsp;&nbsp;
@@ -383,7 +383,7 @@
   <p>The bucket size follows directly:</p>
 
   <div class="eq">
-    <span class="label">Expert Choice, eq. 1</span>
+    <span class="label"><a href="https://arxiv.org/abs/2202.09368">Expert Choice, eq. 1</a></span>
     <div class="body">
       <span class="v">k</span> &nbsp;<span class="op">=</span>&nbsp;
       <span class="frac">
