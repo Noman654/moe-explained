@@ -68,9 +68,11 @@
   window.addEventListener("message", function (e) {
     if (e.origin !== "https://giscus.app") return;
     var err = e.data && e.data.giscus && e.data.giscus.error;
-    // "Discussion not found" is benign — the thread is created the first time
-    // someone comments or reacts. Only a genuinely fatal error hides the widget.
-    if (err && /not installed|not associated|bad credentials/i.test(err)) fallback();
+    // Only a confirmed configuration failure hides the widget. "Discussion not
+    // found" is benign (the thread is created on first comment), and "Bad
+    // credentials" is a reader's expired sign-in, which giscus recovers from
+    // on its own — neither should make the site look broken.
+    if (err && /not installed|not associated/i.test(err)) fallback();
   });
   setTimeout(function () {
     if (!mount.querySelector("iframe.giscus-frame")) fallback();

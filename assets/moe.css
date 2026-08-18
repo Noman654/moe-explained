@@ -22,7 +22,7 @@
   --paper-sunk:  #f6f6f7;
   --ink:         #121212;
   --ink-soft:    #4a4a4f;
-  --ink-faint:   #82828a;
+  --ink-faint:   #6b6b73;
   --rule:        #e4e4e6;
   --rule-strong: #c8c8cc;
   --accent:      #0b57d0;   /* links only — a clear blue, so links read as links */
@@ -57,7 +57,7 @@
     --paper-sunk:  #161619;
     --ink:         #ececed;
     --ink-soft:    #a4a4ad;
-    --ink-faint:   #74747e;
+    --ink-faint:   #8b8b95;
     --rule:        #26262b;
     --rule-strong: #3a3a41;
     --accent:      #6cabff;
@@ -79,7 +79,7 @@
   --paper-sunk:  #161619;
   --ink:         #ececed;
   --ink-soft:    #a4a4ad;
-  --ink-faint:   #74747e;
+  --ink-faint:   #8b8b95;
   --rule:        #26262b;
   --rule-strong: #3a3a41;
   --accent:      #6cabff;
