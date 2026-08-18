@@ -28,7 +28,7 @@
 <header class="masthead">
   <div class="wrap">
     <a class="brand" href="../index.html">MoE<em>,</em> Explained</a>
-    <nav>
+    <nav aria-label="Site">
       <a href="../index.html">Contents</a>
       <a href="04-capacity-factor.html">Next: Capacity &rarr;</a>
     </nav>
@@ -100,7 +100,7 @@
     </details>
   </nav>
 
-  <article>
+  <main>
 
   <div class="chapmark"><span class="n">3</span><span class="l">Chapter three &middot; Load balancing</span></div>
   <h1>The loss that watches the router</h1>
@@ -329,7 +329,7 @@
   </div>
 
   <div class="tryit">
-    <h4>Try it &mdash; feel the correction</h4>
+    <h3>Try it &mdash; feel the correction</h3>
     <p style="font-family:var(--sans);font-size:0.86rem;color:var(--ink-soft);margin-bottom:1rem">
     Set the number of experts, the balance coefficient, and how badly the router has
     collapsed. Bars are measured load; arrows are the resulting
@@ -339,17 +339,17 @@
     <div class="ctl">
       <label for="bn">Experts (<span class="v">N</span>)</label>
       <input type="range" id="bn" min="4" max="16" value="8">
-      <output id="bno">8</output>
+      <output for="bn" id="bno">8</output>
     </div>
     <div class="ctl">
       <label for="ba">Coefficient &alpha;</label>
       <input type="range" id="ba" min="0" max="40" value="20">
-      <output id="bao">1e-2</output>
+      <output for="ba" id="bao">1e-2</output>
     </div>
     <div class="ctl">
       <label for="bs">Collapse severity</label>
       <input type="range" id="bs" min="0" max="100" value="70">
-      <output id="bso">severe</output>
+      <output for="bs" id="bso">severe</output>
     </div>
 
     <svg id="balchart" viewBox="0 0 700 210" role="img" aria-label="Measured expert load with the corrective gradient beneath each expert, sized in proportion to that expert's share of the batch." style="width:100%;height:auto;margin:1rem 0"></svg>
@@ -359,7 +359,7 @@
       <div class="stat"><div class="n" id="bLoss">&mdash;</div><div class="l">auxiliary loss value</div></div>
       <div class="stat"><div class="n" id="bFloor">&mdash;</div><div class="l">its value at perfect balance</div></div>
     </div>
-    <p id="bNote" style="font-family:var(--sans);font-size:0.82rem;color:var(--ink-soft);margin:0.9rem 0 0"></p>
+    <p id="bNote" role="status" style="font-family:var(--sans);font-size:0.82rem;color:var(--ink-soft);margin:0.9rem 0 0"></p>
   </div>
 
   <h2 id="zloss">The other loss: bfloat16 is out to get you</h2>
@@ -522,7 +522,7 @@
   off entirely.</p>
 
   <div class="problem">
-    <h4>Work it yourself</h4>
+    <h3>Work it yourself</h3>
     <p>You're training an 8-expert MoE with Switch's auxiliary loss. After a few
     thousand steps the measured load is badly skewed:</p>
     <pre style="margin:0.7rem 0"><code>f = [0.40, 0.02, 0.30, 0.05, 0.15, 0.03, 0.04, 0.01]</code></pre>
@@ -562,7 +562,7 @@
   </div>
 
   <div class="takeaway">
-    <h4>What you can now do</h4>
+    <h3>What you can now do</h3>
     <ul>
       <li>Explain why expert collapse is self-reinforcing, and why nothing errors.</li>
       <li>Derive <code>∂loss/∂P<sub>i</sub> = α·N·f<sub>i</sub></code> and say in one
@@ -581,7 +581,7 @@
   It does not make it impossible &mdash; and what happens to a token that finds its
   expert full is the quietest failure in this entire architecture.</p>
 
-  <nav class="seriesnav">
+  <nav class="seriesnav" aria-label="Chapter navigation">
     <a href="02-the-router.html">
       <span class="k">Previous chapter</span>
       <span class="t"><strong>2 &middot; The router's impossible job</strong></span>
@@ -619,7 +619,7 @@
     <div id="giscus-mount"></div>
   </section>
 
-  </article>
+  </main>
 </div>
 
 <footer class="site"><div class="wrap">

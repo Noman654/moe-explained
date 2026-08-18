@@ -28,7 +28,7 @@
 <header class="masthead">
   <div class="wrap">
     <a class="brand" href="../index.html">MoE<em>,</em> Explained</a>
-    <nav>
+    <nav aria-label="Site">
       <a href="../index.html">Contents</a>
       <a href="01-why-moe.html">Back to chapter 1</a>
     </nav>
@@ -101,7 +101,7 @@
     </details>
   </nav>
 
-  <article>
+  <main>
 
   <div class="chapmark"><span class="n">6</span><span class="l">Chapter six &middot; Systems</span></div>
   <h1>When the network becomes the model</h1>
@@ -400,7 +400,7 @@
   binding constraint, the same trade is bad.</p>
 
   <div class="tryit">
-    <h4>Try it &mdash; find your break-even batch size</h4>
+    <h3>Try it &mdash; find your break-even batch size</h3>
     <p style="font-family:var(--sans);font-size:0.86rem;color:var(--ink-soft);margin-bottom:1rem">
     At decode you read the weights of every expert something routed to, but only do
     arithmetic for the tokens that chose them. Set the architecture and the batch and
@@ -413,17 +413,17 @@
     <div class="ctl">
       <label for="mn">Routed experts (<span class="v">N</span>)</label>
       <input type="range" id="mn" min="8" max="256" step="8" value="8">
-      <output id="mno">8</output>
+      <output for="mn" id="mno">8</output>
     </div>
     <div class="ctl">
       <label for="mk">Activated (<span class="v">k</span>)</label>
       <input type="range" id="mk" min="1" max="8" value="2">
-      <output id="mko">2</output>
+      <output for="mk" id="mko">2</output>
     </div>
     <div class="ctl">
       <label for="mb">Batch (tokens)</label>
       <input type="range" id="mb" min="0" max="100" value="0">
-      <output id="mbo">1</output>
+      <output for="mb" id="mbo">1</output>
     </div>
 
     <svg id="aichart" viewBox="0 0 700 120" role="img" aria-label="Arithmetic intensity against the machine balance line, showing whether the configuration is memory-bound or compute-bound." style="width:100%;height:auto;margin:1rem 0"></svg>
@@ -433,7 +433,7 @@
       <div class="stat"><div class="n" id="mAI">&mdash;</div><div class="l">arithmetic intensity, FLOP/byte</div></div>
       <div class="stat"><div class="n" id="mBE">&mdash;</div><div class="l">batch needed to break even</div></div>
     </div>
-    <p id="mNote" style="font-family:var(--sans);font-size:0.82rem;color:var(--ink-soft);margin:0.9rem 0 0"></p>
+    <p id="mNote" role="status" style="font-family:var(--sans);font-size:0.82rem;color:var(--ink-soft);margin:0.9rem 0 0"></p>
   </div>
 
   <div class="rung research">
@@ -457,7 +457,7 @@
   </figure>
 
   <div class="problem">
-    <h4>Work it yourself</h4>
+    <h3>Work it yourself</h3>
     <p>You want to serve <strong>Mixtral 8&times;7B</strong> (46.7B total, 12.9B
     active) in FP16 on a single <strong>A100-80GB</strong>.</p>
     <p><strong>(a)</strong> Does it fit? Show the arithmetic.<br>
@@ -495,7 +495,7 @@
   </div>
 
   <div class="takeaway">
-    <h4>What you can now do</h4>
+    <h3>What you can now do</h3>
     <ul>
       <li>Explain expert parallelism and how it differs from tensor and data
         parallelism.</li>
@@ -534,7 +534,7 @@
   &mdash; and it's why, when the next paper lands, you'll be able to read it as a
   reply to something rather than as a novelty.</p>
 
-  <nav class="seriesnav">
+  <nav class="seriesnav" aria-label="Chapter navigation">
     <a href="05-the-lineage.html">
       <span class="k">Previous chapter</span>
       <span class="t"><strong>5 &middot; Seven years of arguing</strong></span>
@@ -567,7 +567,7 @@
     <div id="giscus-mount"></div>
   </section>
 
-  </article>
+  </main>
 </div>
 
 <footer class="site"><div class="wrap">

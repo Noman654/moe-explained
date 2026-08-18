@@ -292,7 +292,7 @@ pre code { border: 0; }
   border: 0; border-top: 1px solid var(--rule-strong);
   background: none; padding: 1.4rem 0 0; margin: 3.5rem 0;
 }
-.tryit > h4 {
+.tryit > h3 {
   margin: 0 0 1rem; font-family: var(--sans); font-weight: 400;
   font-size: 0.98rem; font-style: italic; letter-spacing: 0;
   text-transform: none; color: var(--ink-faint);
@@ -342,13 +342,13 @@ pre code { border: 0; }
   background: var(--paper-sunk);
   padding: 1.6rem 1.75rem; margin: 3.5rem 0;
 }
-.problem > h4 {
+.problem > h3 {
   margin: 0 0 1rem; font-family: var(--sans); font-weight: 400;
   font-size: 0.98rem; font-style: italic; letter-spacing: 0;
   text-transform: none; color: var(--ink-faint);
   display: block;
 }
-.problem > h4::before { content: none; }
+.problem > h3::before { content: none; }
 .problem > :last-child { margin-bottom: 0; }
 .problem details {
   margin-top: 1.4rem; border-top: 1px solid var(--rule); padding-top: 1.1rem;
@@ -370,7 +370,7 @@ pre code { border: 0; }
   background: none; border-radius: 0;
   padding: 1.4rem 0 0; margin: 4rem 0;
 }
-.takeaway h4 {
+.takeaway h3 {
   margin: 0 0 1rem; font-family: var(--sans); font-weight: 400;
   font-size: 0.98rem; font-style: italic; letter-spacing: 0;
   text-transform: none; color: var(--ink-faint);
@@ -422,7 +422,7 @@ footer.site a { color: var(--ink-faint); }
   gap: 4.5rem; max-width: 76rem; margin: 0 auto;
   padding: 0 1.5rem; justify-content: center;
 }
-.book > article { min-width: 0; padding-bottom: 6rem; }
+.book > main { min-width: 0; padding-bottom: 6rem; }
 
 .booknav {
   position: sticky; top: 0; align-self: start;
@@ -515,9 +515,12 @@ footer.site a { color: var(--ink-faint); }
 }
 .animbar button {
   flex: none; display: inline-flex; align-items: center; justify-content: center;
-  width: 26px; height: 26px; padding: 0; cursor: pointer;
+  width: 32px; height: 32px; padding: 0; cursor: pointer;
   border: 1px solid var(--rule-strong); border-radius: 50%;
   background: none; color: var(--ink-soft);
+}
+@media (pointer: coarse) {
+  .animbar button { width: 44px; height: 44px; }
 }
 .animbar button:hover { color: var(--ink); border-color: var(--ink-soft); }
 .animbar button:focus-visible,

@@ -28,7 +28,7 @@
 <header class="masthead">
   <div class="wrap">
     <a class="brand" href="../index.html">MoE<em>,</em> Explained</a>
-    <nav>
+    <nav aria-label="Site">
       <a href="../index.html">Contents</a>
       <a href="02-the-router.html">Next: The router &rarr;</a>
     </nav>
@@ -104,7 +104,7 @@
   </nav>
 
   <!-- ============================ chapter ============================ -->
-  <article>
+  <main>
 
   <div class="chapmark"><span class="n">1</span><span class="l">Chapter one &middot; Foundations</span></div>
   <h1>Every token pays full price</h1>
@@ -520,7 +520,7 @@ active <span class="c-key">=</span> layers <span class="c-key">*</span> (top_k  
   non-expert parameters dilute it.</p>
 
   <div class="problem">
-    <h4>Work it yourself</h4>
+    <h3>Work it yourself</h3>
     <p>DeepSeek-V3 is <strong>671B total, 37B active</strong> &mdash; an 18.1&times;
     sparsity ratio, five times sparser than Mixtral. It uses 256 routed experts with
     top-8 routing, plus 1 shared expert that runs for every token.</p>
@@ -553,7 +553,7 @@ active <span class="c-key">=</span> layers <span class="c-key">*</span> (top_k  
   </div>
 
   <div class="tryit">
-    <h4>Try it &mdash; build your own MoE</h4>
+    <h3>Try it &mdash; build your own MoE</h3>
     <p style="font-family:var(--sans);font-size:0.86rem;color:var(--ink-soft);margin-bottom:1rem">
     Same Mixtral geometry, your choice of expert count and top-k. Watch what
     decouples and what stubbornly doesn't.</p>
@@ -561,12 +561,12 @@ active <span class="c-key">=</span> layers <span class="c-key">*</span> (top_k  
     <div class="ctl">
       <label for="ne">Experts (<span class="v">N</span>)</label>
       <input type="range" id="ne" min="1" max="64" value="8">
-      <output id="neo">8</output>
+      <output for="ne" id="neo">8</output>
     </div>
     <div class="ctl">
       <label for="tk">Active (<span class="v">k</span>)</label>
       <input type="range" id="tk" min="1" max="8" value="2">
-      <output id="tko">2</output>
+      <output for="tk" id="tko">2</output>
     </div>
 
     <div id="grid" style="display:flex;flex-wrap:wrap;gap:3px;margin:1.1rem 0"></div>
@@ -576,7 +576,7 @@ active <span class="c-key">=</span> layers <span class="c-key">*</span> (top_k  
       <div class="stat"><div class="n" id="rAct">12.88B</div><div class="l">active per token (arithmetic done)</div></div>
       <div class="stat"><div class="n" id="rRat">3.63&times;</div><div class="l">sparsity ratio</div></div>
     </div>
-    <p id="note" style="font-family:var(--sans);font-size:0.82rem;color:var(--ink-soft);margin:0.9rem 0 0"></p>
+    <p id="note" role="status" style="font-family:var(--sans);font-size:0.82rem;color:var(--ink-soft);margin:0.9rem 0 0"></p>
   </div>
 
   <h2 id="scoreboard">The scoreboard</h2>
@@ -724,7 +724,7 @@ active <span class="c-key">=</span> layers <span class="c-key">*</span> (top_k  
   </div>
 
   <div class="takeaway">
-    <h4>What you can now do</h4>
+    <h3>What you can now do</h3>
     <ul>
       <li>Explain why the FFN, not attention, is the thing MoE replaces &mdash; with
         the parameter counts to back it up.</li>
@@ -742,7 +742,7 @@ active <span class="c-key">=</span> layers <span class="c-key">*</span> (top_k  
   enough to train, and the tension between those two demands explains nearly every
   design decision in the rest of this book.</p>
 
-  <nav class="seriesnav">
+  <nav class="seriesnav" aria-label="Chapter navigation">
     <span></span>
     <a href="02-the-router.html">
       <span class="k">Next chapter</span>
@@ -778,7 +778,7 @@ active <span class="c-key">=</span> layers <span class="c-key">*</span> (top_k  
     <div id="giscus-mount"></div>
   </section>
 
-  </article>
+  </main>
 </div>
 
 <footer class="site"><div class="wrap">

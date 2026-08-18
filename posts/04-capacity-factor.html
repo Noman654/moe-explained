@@ -28,7 +28,7 @@
 <header class="masthead">
   <div class="wrap">
     <a class="brand" href="../index.html">MoE<em>,</em> Explained</a>
-    <nav>
+    <nav aria-label="Site">
       <a href="../index.html">Contents</a>
       <a href="05-the-lineage.html">Next: The lineage &rarr;</a>
     </nav>
@@ -100,7 +100,7 @@
     </details>
   </nav>
 
-  <article>
+  <main>
 
   <div class="chapmark"><span class="n">4</span><span class="l">Chapter four &middot; Capacity</span></div>
   <h1>The seat that wasn't there</h1>
@@ -294,7 +294,7 @@
   </div>
 
   <div class="tryit">
-    <h4>Try it &mdash; find the knee yourself</h4>
+    <h3>Try it &mdash; find the knee yourself</h3>
     <p style="font-family:var(--sans);font-size:0.86rem;color:var(--ink-soft);margin-bottom:1rem">
     One group of <strong>1024 tokens</strong>, 8 experts, with a realistically skewed
     router. Move the capacity factor and watch the two costs trade against each other.
@@ -303,12 +303,12 @@
     <div class="ctl">
       <label for="cf">Capacity factor</label>
       <input type="range" id="cf" min="50" max="300" value="100" step="5">
-      <output id="cfo">1.00</output>
+      <output for="cf" id="cfo">1.00</output>
     </div>
     <div class="ctl">
       <label for="sk">Router skew</label>
       <input type="range" id="sk" min="0" max="100" value="60">
-      <output id="sko">moderate</output>
+      <output for="sk" id="sko">moderate</output>
     </div>
 
     <svg id="capchart" viewBox="0 0 700 180" role="img" aria-label="Per-expert token load against the capacity line, showing which experts overflow and how many seats sit unused." style="width:100%;height:auto;margin:1rem 0"></svg>
@@ -318,7 +318,7 @@
       <div class="stat"><div class="n" id="cWaste">&mdash;</div><div class="l">seats allocated but unused</div></div>
       <div class="stat"><div class="n" id="cMem">&mdash;</div><div class="l">buffer vs. the fair share</div></div>
     </div>
-    <p id="cNote" style="font-family:var(--sans);font-size:0.82rem;color:var(--ink-soft);margin:0.9rem 0 0"></p>
+    <p id="cNote" role="status" style="font-family:var(--sans);font-size:0.82rem;color:var(--ink-soft);margin:0.9rem 0 0"></p>
   </div>
 
   <h2 id="rescue">The obvious fix, which bought nothing</h2>
@@ -460,7 +460,7 @@
   </ul>
 
   <div class="problem">
-    <h4>Work it yourself</h4>
+    <h3>Work it yourself</h3>
     <p>You're training an MoE with <strong>8 experts</strong>, a batch of
     <strong>16,384 tokens</strong>, sharded across <strong>8 cores</strong> (so 8 local
     groups of 2,048 tokens each), at <strong>capacity factor 1.0</strong>.</p>
@@ -513,7 +513,7 @@
   </div>
 
   <div class="takeaway">
-    <h4>What you can now do</h4>
+    <h3>What you can now do</h3>
     <ul>
       <li>Compute expert capacity, and know to divide by the <em>group</em>, not the
         global batch.</li>
@@ -535,7 +535,7 @@
   back to the beginning and reading the seven-year argument in order &mdash; because
   the sequence explains the design far better than any of the papers do alone.</p>
 
-  <nav class="seriesnav">
+  <nav class="seriesnav" aria-label="Chapter navigation">
     <a href="03-load-balancing.html">
       <span class="k">Previous chapter</span>
       <span class="t"><strong>3 &middot; The loss that watches the router</strong></span>
@@ -569,7 +569,7 @@
     <div id="giscus-mount"></div>
   </section>
 
-  </article>
+  </main>
 </div>
 
 <footer class="site"><div class="wrap">

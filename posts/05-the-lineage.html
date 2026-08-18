@@ -28,7 +28,7 @@
 <header class="masthead">
   <div class="wrap">
     <a class="brand" href="../index.html">MoE<em>,</em> Explained</a>
-    <nav>
+    <nav aria-label="Site">
       <a href="../index.html">Contents</a>
       <a href="06-systems-reality.html">Next: Systems &rarr;</a>
     </nav>
@@ -102,7 +102,7 @@
     </details>
   </nav>
 
-  <article>
+  <main>
 
   <div class="chapmark"><span class="n">5</span><span class="l">Chapter five &middot; The lineage</span></div>
   <h1>Seven years of arguing</h1>
@@ -339,7 +339,7 @@
   the scale justified it, DeepSeek-V3 went to 256 routed experts.</p>
 
   <div class="tryit">
-    <h4>Try it &mdash; split the experts, keep the FLOPs</h4>
+    <h3>Try it &mdash; split the experts, keep the FLOPs</h3>
     <p style="font-family:var(--sans);font-size:0.86rem;color:var(--ink-soft);margin-bottom:1rem">
     Start from <span class="v">N</span> experts with top-<span class="v">k</span>
     routing, then cut each expert into <span class="v">m</span> pieces and activate
@@ -349,17 +349,17 @@
     <div class="ctl">
       <label for="fn">Base experts (<span class="v">N</span>)</label>
       <input type="range" id="fn" min="4" max="64" value="16">
-      <output id="fno">16</output>
+      <output for="fn" id="fno">16</output>
     </div>
     <div class="ctl">
       <label for="fk">Activated (<span class="v">k</span>)</label>
       <input type="range" id="fk" min="1" max="8" value="2">
-      <output id="fko">2</output>
+      <output for="fk" id="fko">2</output>
     </div>
     <div class="ctl">
       <label for="fm">Split factor (<span class="v">m</span>)</label>
       <input type="range" id="fm" min="1" max="8" value="4">
-      <output id="fmo">4</output>
+      <output for="fm" id="fmo">4</output>
     </div>
 
     <div class="stats" style="margin:0">
@@ -367,7 +367,7 @@
       <div class="stat"><div class="n" id="gAfter">4.43e9</div><div class="l">combinations after</div></div>
       <div class="stat"><div class="n" id="gRatio">3.7e7&times;</div><div class="l">gain, at identical FLOPs</div></div>
     </div>
-    <p id="gNote" style="font-family:var(--sans);font-size:0.82rem;color:var(--ink-soft);margin:0.9rem 0 0"></p>
+    <p id="gNote" role="status" style="font-family:var(--sans);font-size:0.82rem;color:var(--ink-soft);margin:0.9rem 0 0"></p>
   </div>
 
   <h2 id="shared">Shared experts, and the thing they don't have</h2>
@@ -505,7 +505,7 @@
   Mistral model &ldquo;probably&rdquo; does.</p>
 
   <div class="problem">
-    <h4>Work it yourself</h4>
+    <h3>Work it yourself</h3>
     <p><strong>(a)</strong> Switch-XXL (395B, 64 experts) outperformed Switch-C (1571B,
     2048 experts) on both perplexity and SQuAD. Using what you know from chapters 1 and
     4, give two distinct reasons more experts can make a model <em>worse</em> at fixed
@@ -546,7 +546,7 @@
   </div>
 
   <div class="takeaway">
-    <h4>What you can now do</h4>
+    <h3>What you can now do</h3>
     <ul>
       <li>Name what each paper was reacting to, in its own words.</li>
       <li>Explain why Switch's top-1 was considered impossible and why it wasn't
@@ -565,7 +565,7 @@
   of a network &mdash; and the moment experts live on different devices, routing stops
   being arithmetic and becomes a communication problem.</p>
 
-  <nav class="seriesnav">
+  <nav class="seriesnav" aria-label="Chapter navigation">
     <a href="04-capacity-factor.html">
       <span class="k">Previous chapter</span>
       <span class="t"><strong>4 &middot; The seat that wasn't there</strong></span>
@@ -604,7 +604,7 @@
     <div id="giscus-mount"></div>
   </section>
 
-  </article>
+  </main>
 </div>
 
 <footer class="site"><div class="wrap">
